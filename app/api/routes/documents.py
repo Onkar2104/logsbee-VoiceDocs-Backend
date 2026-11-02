@@ -53,3 +53,13 @@ def request_edit_access(document_id: uuid.UUID, db: Session = Depends(get_db), u
 @router.patch("/{document_id}/edit-requests/{target_user_id}", response_model=DocumentShareResponse)
 def decide_edit_access(document_id: uuid.UUID, target_user_id: uuid.UUID, data: EditRequestDecision, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     return DocumentService.decide_edit_request(db, document_id, target_user_id, data.decision, user)
+
+
+@router.get("/{document_id}/shares", response_model=list[DocumentShareResponse])
+def list_document_shares(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.list_shares(db, document_id, user)
+
+
+@router.delete("/{document_id}/shares/{target_user_id}")
+def revoke_document_share(document_id: uuid.UUID, target_user_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.revoke_share(db, document_id, target_user_id, user)
