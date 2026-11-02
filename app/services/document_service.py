@@ -50,22 +50,29 @@ class DocumentService:
         return DocumentRepository.create(db, document)
 
     @classmethod
-    def list_for_user(cls, db: Session, user, access_token: str):
+    def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my"):
         account_id = cls._require_account(user)
-        if cls._is_admin(user):
-            documents = (
-                db.query(Document)
-                .filter(Document.account_id == account_id, Document.is_deleted.is_(False))
-                .order_by(Document.updated_at.desc())
-                .all()
+        current_user_id = uuid.UUID(user.id)
+
+        query = db.query(Document).filter(
+            Document.account_id == account_id,
+            Document.is_deleted.is_(False),
+        )
+        if scope == "my":
+            query = query.filter(Document.owner_user_id == current_user_id)
+        elif scope == "shared":
+            query = (
+                query.join(DocumentShare, DocumentShare.document_id == Document.id)
+                .filter(DocumentShare.shared_with_user_id == current_user_id)
             )
         else:
-            documents = DocumentRepository.list_for_user(db, uuid.UUID(user.id), account_id)
+            raise HTTPException(status_code=400, detail="Scope must be 'my' or 'shared'.")
+
+        documents = query.order_by(Document.updated_at.desc()).all()
 
         from app.integrations.logsbee.client import logsbee_client
         results = []
         member_cache = {}
-        current_user_id = uuid.UUID(user.id)
         for document in documents:
             item = {
                 "id": document.id,
@@ -79,17 +86,20 @@ class DocumentService:
                 "shared_by_user_id": None,
                 "shared_by_name": None,
             }
-            share = DocumentRepository.get_share(db, document.id, current_user_id)
-            if share:
-                item["shared_by_user_id"] = share.shared_by_user_id
-                sender_id = str(share.shared_by_user_id)
-                if sender_id not in member_cache:
-                    member_cache[sender_id] = logsbee_client.get_member_summary(access_token, share.shared_by_user_id)
-                member = member_cache[sender_id]
-                if member:
-                    item["shared_by_name"] = " ".join(
-                        part for part in [member.get("first_name"), member.get("last_name")] if part
-                    ) or member.get("email")
+            if scope == "shared":
+                share = DocumentRepository.get_share(db, document.id, current_user_id)
+                if share:
+                    item["shared_by_user_id"] = share.shared_by_user_id
+                    sender_id = str(share.shared_by_user_id)
+                    if sender_id not in member_cache:
+                        member_cache[sender_id] = logsbee_client.get_member_summary(
+                            access_token, share.shared_by_user_id
+                        )
+                    member = member_cache[sender_id]
+                    if member:
+                        item["shared_by_name"] = " ".join(
+                            part for part in [member.get("first_name"), member.get("last_name")] if part
+                        ) or member.get("email")
             results.append(item)
         return results
 
