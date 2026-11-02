@@ -143,3 +143,21 @@ class DocumentService:
         DocumentRepository.commit(db)
         db.refresh(share)
         return share
+
+    @classmethod
+    def list_shares(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_visible_document(db, document_id, user)
+        if not cls._can_manage(document, user):
+            raise HTTPException(status_code=403, detail="Only the owner or Account Admin can view sharing settings.")
+        return DocumentRepository.list_shares(db, document.id)
+
+    @classmethod
+    def revoke_share(cls, db: Session, document_id: uuid.UUID, target_user_id: uuid.UUID, user):
+        document = cls._get_visible_document(db, document_id, user)
+        if not cls._can_manage(document, user):
+            raise HTTPException(status_code=403, detail="Only the owner or Account Admin can revoke sharing.")
+        share = DocumentRepository.get_share(db, document.id, target_user_id)
+        if share is None:
+            raise HTTPException(status_code=404, detail="Document share not found.")
+        DocumentRepository.delete_share(db, share)
+        return {"message": "Document access revoked successfully."}
