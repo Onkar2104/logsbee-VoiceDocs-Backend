@@ -21,8 +21,8 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: L
 
 
 @router.get("/", response_model=list[DocumentResponse])
-def list_documents(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
-    return DocumentService.list_for_user(db, user)
+def list_documents(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user), token: str = Depends(get_access_token)):
+    return DocumentService.list_for_user(db, user, token)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
