@@ -69,6 +69,7 @@ class DocumentService:
             query = (
                 query.join(DocumentShare, DocumentShare.document_id == Document.id)
                 .filter(DocumentShare.shared_by_user_id == current_user_id)
+                .distinct()
             )
         else:
             raise HTTPException(status_code=400, detail="Scope must be 'my', 'shared', or 'shared_by_me'.")
