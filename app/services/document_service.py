@@ -50,16 +50,44 @@ class DocumentService:
         return DocumentRepository.create(db, document)
 
     @classmethod
-    def list_for_user(cls, db: Session, user):
+    def list_for_user(cls, db: Session, user, access_token: str):
         account_id = cls._require_account(user)
         if cls._is_admin(user):
-            return (
+            documents = (
                 db.query(Document)
                 .filter(Document.account_id == account_id, Document.is_deleted.is_(False))
                 .order_by(Document.updated_at.desc())
                 .all()
             )
-        return DocumentRepository.list_for_user(db, uuid.UUID(user.id), account_id)
+        else:
+            documents = DocumentRepository.list_for_user(db, uuid.UUID(user.id), account_id)
+
+        from app.integrations.logsbee.client import logsbee_client
+        results = []
+        current_user_id = uuid.UUID(user.id)
+        for document in documents:
+            item = {
+                "id": document.id,
+                "title": document.title,
+                "content": document.content,
+                "owner_user_id": document.owner_user_id,
+                "account_id": document.account_id,
+                "created_at": document.created_at,
+                "updated_at": document.updated_at,
+                "updated_by": document.updated_by,
+                "shared_by_user_id": None,
+                "shared_by_name": None,
+            }
+            share = DocumentRepository.get_share(db, document.id, current_user_id)
+            if share:
+                item["shared_by_user_id"] = share.shared_by_user_id
+                member = logsbee_client.get_member_summary(access_token, share.shared_by_user_id)
+                if member:
+                    item["shared_by_name"] = " ".join(
+                        part for part in [member.get("first_name"), member.get("last_name")] if part
+                    ) or member.get("email")
+            results.append(item)
+        return results
 
     @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
