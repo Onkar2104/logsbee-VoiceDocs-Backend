@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LogsbeeRole(BaseModel):
@@ -41,6 +41,6 @@ class LogsbeeUserContext(BaseModel):
     is_contact_verified: bool
     is_two_factor_authenticated: bool
     role: LogsbeeRole | None = None
-    permission_codes: list[str] = []
+    permission_codes: list[str] = Field(default_factory=list)
     account: LogsbeeAccount | None = None
-    products: list[LogsbeeProduct] = []
+    products: list[LogsbeeProduct] = Field(default_factory=list)
