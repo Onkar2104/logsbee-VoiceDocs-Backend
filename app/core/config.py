@@ -4,15 +4,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "VoiceDocs API"
-    api_v1_prefix: str = "/api/v1"
-    environment: str = "development"
-    debug: bool = False
+    app_name: str
+    api_v1_prefix: str
+    environment: str
+    debug: bool
 
-    database_url: str = "postgresql+psycopg://postgres:password@localhost:5432/voicedocs"
+    database_url: str
 
-    logsbee_api_base_url: str = "http://localhost:8001"
-    logsbee_api_timeout_seconds: float = 10.0
+    logsbee_user_api_base_url: str
+    logsbee_user_api_timeout_seconds: float
 
     model_config = SettingsConfigDict(
         env_file=".env",
