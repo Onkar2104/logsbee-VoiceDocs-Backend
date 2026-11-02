@@ -52,6 +52,26 @@ class LogsbeeClient:
                 detail="Logsbee User Management API is unavailable",
             )
 
+    def get_member_summary(self, access_token: str, user_id) -> dict:
+        """Fetch a same-account member identity from Logsbee."""
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
+                response = client.get(
+                    f"/api/users/{user_id}",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            if response.status_code in (401, 403):
+                raise HTTPException(status_code=403, detail="Unable to verify target user access.")
+            if response.status_code == 404:
+                return {}
+            if response.is_error:
+                raise HTTPException(status_code=502, detail="Logsbee could not retrieve member details.")
+            return response.json()
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=503, detail="Logsbee User Management API timed out.")
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Logsbee User Management API is unavailable.")
+
     def verify_same_account_member(self, access_token: str, user_id) -> None:
         """Ask Logsbee to verify that a target user belongs to the caller's account."""
         try:
