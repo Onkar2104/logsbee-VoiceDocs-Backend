@@ -112,6 +112,7 @@ All endpoints below require the Logsbee-issued Bearer access token.
 - Shared users cannot delete, share, revoke shares, or approve requests.
 - Share recipients are checked by Logsbee using the caller's Bearer token and must be active users in the same account.
 - Documents are soft-deleted; deleted documents are excluded from normal reads and lists.
+- `updated_by` records the Logsbee user UUID of the last person who modified the document, including an approved shared editor.
 - VoiceDocs does not create or duplicate Logsbee users, accounts, roles, or permissions.
 
 The Logsbee membership verification route is provided by [logsbee-user PR #4](https://github.com/Onkar2104/logsbee-user/pull/4). Run Logsbee on the URL configured by `LOGSBEE_USER_API_BASE_URL`.
