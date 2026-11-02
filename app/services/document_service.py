@@ -64,6 +64,7 @@ class DocumentService:
 
         from app.integrations.logsbee.client import logsbee_client
         results = []
+        member_cache = {}
         current_user_id = uuid.UUID(user.id)
         for document in documents:
             item = {
@@ -81,7 +82,10 @@ class DocumentService:
             share = DocumentRepository.get_share(db, document.id, current_user_id)
             if share:
                 item["shared_by_user_id"] = share.shared_by_user_id
-                member = logsbee_client.get_member_summary(access_token, share.shared_by_user_id)
+                sender_id = str(share.shared_by_user_id)
+                if sender_id not in member_cache:
+                    member_cache[sender_id] = logsbee_client.get_member_summary(access_token, share.shared_by_user_id)
+                member = member_cache[sender_id]
                 if member:
                     item["shared_by_name"] = " ".join(
                         part for part in [member.get("first_name"), member.get("last_name")] if part
