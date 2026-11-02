@@ -8,8 +8,9 @@ FastAPI backend for VoiceDocs.
 - FastAPI
 - PostgreSQL
 - SQLAlchemy 2
-- Alembic (migrations are introduced in the next database phase)
+- Alembic
 - Pydantic Settings
+- HTTPX for the Logsbee User Management API
 
 ## 1. Clone and switch to the feature branch
 
@@ -42,21 +43,23 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Copy the example environment file:
-
 Windows PowerShell:
+
 ```powershell
 Copy-Item .env.example .env
 ```
 
 macOS/Linux:
+
 ```bash
 cp .env.example .env
 ```
 
-Update `DATABASE_URL` in `.env` with your local PostgreSQL credentials. Create a PostgreSQL database named `voicedocs` first.
+Update `DATABASE_URL` with your local PostgreSQL credentials. Create a PostgreSQL database named `voicedocs` first.
 
-## 4. Run the API
+Set `LOGSBEE_USER_API_BASE_URL` to the URL where your Logsbee User Management API is running. The example uses port 8001 so VoiceDocs can run on port 8000 locally.
+
+## 4. Run VoiceDocs
 
 ```bash
 uvicorn main:app --reload
@@ -65,9 +68,12 @@ uvicorn main:app --reload
 - Swagger UI: http://127.0.0.1:8000/docs
 - Liveness: http://127.0.0.1:8000/api/v1/health
 - Database readiness: http://127.0.0.1:8000/api/v1/health/ready
+- Authenticated user: http://127.0.0.1:8000/api/v1/me
 
-The readiness endpoint returns HTTP 503 until PostgreSQL is reachable.
+## Logsbee authentication
 
-## Architecture direction
+VoiceDocs does not issue or validate its own login tokens. Send the Logsbee-issued access token to VoiceDocs as a Bearer token. VoiceDocs forwards it to Logsbee's authenticated `GET /api/users/me` endpoint and returns the validated user/account/role/permission/product context.
 
-VoiceDocs will validate the signed-in user through the Logsbee User Management API. VoiceDocs will store its own domain data and external Logsbee user/account UUID references; it will not duplicate Logsbee's users, roles, or permissions tables.
+The Logsbee endpoint is being added separately in [logsbee-user PR #4](https://github.com/Onkar2104/logsbee-user/pull/4). That PR must be merged/deployed before the VoiceDocs `/api/v1/me` endpoint can be tested end-to-end.
+
+VoiceDocs stores its own domain data and external Logsbee user/account UUID references; it does not duplicate Logsbee's users, roles, or permissions tables.
