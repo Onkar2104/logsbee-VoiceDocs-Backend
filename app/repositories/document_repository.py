@@ -50,5 +50,14 @@ class DocumentRepository:
         return share
 
     @staticmethod
+    def list_shares(db: Session, document_id: uuid.UUID) -> list[DocumentShare]:
+        return db.query(DocumentShare).filter(DocumentShare.document_id == document_id).order_by(DocumentShare.created_at.desc()).all()
+
+    @staticmethod
+    def delete_share(db: Session, share: DocumentShare) -> None:
+        db.delete(share)
+        db.commit()
+
+    @staticmethod
     def commit(db: Session) -> None:
         db.commit()
