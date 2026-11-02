@@ -75,6 +75,7 @@ class DocumentService:
         changes = data.model_dump(exclude_unset=True)
         for field, value in changes.items():
             setattr(document, field, value)
+        document.updated_by = uuid.UUID(user.id)
         document.updated_at = datetime.now(timezone.utc)
         DocumentRepository.commit(db)
         db.refresh(document)
