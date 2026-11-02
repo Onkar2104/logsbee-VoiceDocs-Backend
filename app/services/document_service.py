@@ -65,8 +65,13 @@ class DocumentService:
                 query.join(DocumentShare, DocumentShare.document_id == Document.id)
                 .filter(DocumentShare.shared_with_user_id == current_user_id)
             )
+        elif scope == "shared_by_me":
+            query = (
+                query.join(DocumentShare, DocumentShare.document_id == Document.id)
+                .filter(DocumentShare.shared_by_user_id == current_user_id)
+            )
         else:
-            raise HTTPException(status_code=400, detail="Scope must be 'my' or 'shared'.")
+            raise HTTPException(status_code=400, detail="Scope must be 'my', 'shared', or 'shared_by_me'.")
 
         documents = query.order_by(Document.updated_at.desc()).all()
 
@@ -102,6 +107,24 @@ class DocumentService:
                         ) or member.get("email")
             results.append(item)
         return results
+
+
+    @classmethod
+    def get_sharing_summary(cls, db: Session, user):
+        account_id = cls._require_account(user)
+        current_user_id = uuid.UUID(user.id)
+        shared_by_me_count = (
+            db.query(Document.id)
+            .join(DocumentShare, DocumentShare.document_id == Document.id)
+            .filter(
+                Document.account_id == account_id,
+                Document.is_deleted.is_(False),
+                DocumentShare.shared_by_user_id == current_user_id,
+            )
+            .distinct()
+            .count()
+        )
+        return {"shared_by_me_count": shared_by_me_count}
 
     @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
