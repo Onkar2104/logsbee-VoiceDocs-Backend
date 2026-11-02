@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     logsbee_user_api_base_url: str
     logsbee_user_api_timeout_seconds: float
 
+    # Comma-separated browser origins allowed to call this API.
+    cors_origins: str
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
