@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.current_user import get_access_token, get_current_user
@@ -21,8 +21,8 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: L
 
 
 @router.get("/", response_model=list[DocumentResponse])
-def list_documents(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user), token: str = Depends(get_access_token)):
-    return DocumentService.list_for_user(db, user, token)
+def list_documents(scope: str = Query(default="my", pattern="^(my|shared)$"), db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user), token: str = Depends(get_access_token)):
+    return DocumentService.list_for_user(db, user, token, scope)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
