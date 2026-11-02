@@ -57,7 +57,7 @@ class LogsbeeClient:
         try:
             with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
                 response = client.get(
-                    f"/api/users/{user_id}",
+                    f"/api/users/membership/{user_id}",
                     headers={"Authorization": f"Bearer {access_token}"},
                 )
             if response.status_code in (401, 403):
