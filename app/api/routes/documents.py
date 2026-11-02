@@ -21,8 +21,13 @@ def create_document(data: DocumentCreate, db: Session = Depends(get_db), user: L
 
 
 @router.get("/", response_model=list[DocumentResponse])
-def list_documents(scope: str = Query(default="my", pattern="^(my|shared)$"), db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user), token: str = Depends(get_access_token)):
+def list_documents(scope: str = Query(default="my", pattern="^(my|shared|shared_by_me)$"), db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user), token: str = Depends(get_access_token)):
     return DocumentService.list_for_user(db, user, token, scope)
+
+
+@router.get("/sharing-summary")
+def get_sharing_summary(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.get_sharing_summary(db, user)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
