@@ -25,6 +25,7 @@ class DocumentResponse(BaseModel):
     account_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    updated_by: uuid.UUID | None = None
 
 
 class DocumentShareCreate(BaseModel):
