@@ -28,7 +28,8 @@ def transcribe_audio(
     language: str | None = Query(default=None, min_length=2, max_length=10),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
-    if file.content_type and file.content_type not in ALLOWED_AUDIO_TYPES:
+    media_type = (file.content_type or "").split(";")[0].strip().lower()
+    if media_type and media_type not in ALLOWED_AUDIO_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported audio format.")
 
     audio_bytes = file.file.read(MAX_AUDIO_SIZE + 1)
