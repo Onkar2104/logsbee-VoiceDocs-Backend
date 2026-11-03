@@ -44,6 +44,11 @@ class TranscriptionService:
         if len(suffix) > 10 or not suffix.startswith("."):
             suffix = ".webm"
 
+        # Auto mode must be able to handle recordings where the spoken language
+        # changes between chunks (for example, Marathi mixed with English).
+        # Manual language selection remains a forced-language transcription.
+        auto_detect = not language
+
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as audio_file:
@@ -55,15 +60,17 @@ class TranscriptionService:
                 language=language or None,
                 task="transcribe",
                 vad_filter=True,
-                # Skip longer pauses sooner while retaining padding around speech.
-                # This reduces the audio passed to Whisper without changing its model
-                # or beam-search accuracy settings.
                 vad_parameters={
                     "min_silence_duration_ms": 800,
                     "speech_pad_ms": 400,
                 },
                 beam_size=5,
-                condition_on_previous_text=True,
+                # faster-whisper's batched pipeline does not use
+                # condition_on_previous_text; multilingual controls per-chunk
+                # language detection when Auto-detect is selected.
+                multilingual=auto_detect,
+                language_detection_segments=3,
+                language_detection_threshold=0.5,
                 batch_size=settings.whisper_batch_size,
             )
             results = [
