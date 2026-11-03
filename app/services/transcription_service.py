@@ -20,6 +20,8 @@ def get_whisper_model() -> WhisperModel:
                     settings.whisper_model_size,
                     device=settings.whisper_device,
                     compute_type=settings.whisper_compute_type,
+                    cpu_threads=settings.whisper_cpu_threads,
+                    num_workers=1,
                 )
     return _model
 
@@ -42,7 +44,9 @@ class TranscriptionService:
                 language=language or None,
                 task="transcribe",
                 vad_filter=True,
-                beam_size=5,
+                beam_size=1,
+                best_of=1,
+                condition_on_previous_text=False,
             )
             results = [
                 {
