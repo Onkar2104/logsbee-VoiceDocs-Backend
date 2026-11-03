@@ -1,6 +1,5 @@
 import os
 import tempfile
-from functools import lru_cache
 from threading import Lock
 
 from faster_whisper import WhisperModel
@@ -9,16 +8,20 @@ from app.core.config import settings
 
 
 _model_lock = Lock()
+_model: WhisperModel | None = None
 
 
-@lru_cache(maxsize=1)
 def get_whisper_model() -> WhisperModel:
-    with _model_lock:
-        return WhisperModel(
-            settings.whisper_model_size,
-            device=settings.whisper_device,
-            compute_type=settings.whisper_compute_type,
-        )
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                _model = WhisperModel(
+                    settings.whisper_model_size,
+                    device=settings.whisper_device,
+                    compute_type=settings.whisper_compute_type,
+                )
+    return _model
 
 
 class TranscriptionService:
