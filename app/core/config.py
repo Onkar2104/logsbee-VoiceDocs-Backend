@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     whisper_cpu_threads: int = 8
+    # Batch multiple speech chunks together to improve CPU throughput.
+    whisper_batch_size: int = 8
 
     model_config = SettingsConfigDict(
         env_file=".env",
