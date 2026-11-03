@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from app.api.dependencies.current_user import get_current_user
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.transcription_service import TranscriptionService
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/transcriptions", tags=["Transcription"])
 
@@ -41,4 +45,5 @@ def transcribe_audio(
     try:
         return TranscriptionService.transcribe(audio_bytes, file.filename or "recording.webm", language)
     except Exception as exc:
+        logger.exception("Audio transcription failed")
         raise HTTPException(status_code=422, detail="Could not transcribe this audio. Please try a clearer recording.") from exc
