@@ -44,9 +44,8 @@ class TranscriptionService:
                 language=language or None,
                 task="transcribe",
                 vad_filter=True,
-                beam_size=1,
-                best_of=1,
-                condition_on_previous_text=False,
+                beam_size=5,
+                condition_on_previous_text=True,
             )
             results = [
                 {
