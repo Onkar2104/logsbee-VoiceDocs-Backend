@@ -55,6 +55,13 @@ class TranscriptionService:
                 language=language or None,
                 task="transcribe",
                 vad_filter=True,
+                # Skip longer pauses sooner while retaining padding around speech.
+                # This reduces the audio passed to Whisper without changing its model
+                # or beam-search accuracy settings.
+                vad_parameters={
+                    "min_silence_duration_ms": 800,
+                    "speech_pad_ms": 400,
+                },
                 beam_size=5,
                 condition_on_previous_text=True,
                 batch_size=settings.whisper_batch_size,
