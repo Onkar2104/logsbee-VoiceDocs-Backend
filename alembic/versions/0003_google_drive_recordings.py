@@ -42,10 +42,9 @@ def upgrade() -> None:
         sa.Column("language", sa.String(20), nullable=True),
         sa.Column("transcript", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("drive_file_id", name="uq_audio_recordings_drive_file_id"),
     )
     op.create_index("ix_audio_recordings_user_id", "audio_recordings", ["user_id"])
-    op.create_index("ix_audio_recordings_drive_file_id", "audio_recordings", ["drive_file_id"])
+    op.create_index("ix_audio_recordings_drive_file_id", "audio_recordings", ["drive_file_id"], unique=True)
 
 
 def downgrade() -> None:
