@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     # Comma-separated browser origins allowed to call this API.
     cors_origins: str
 
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
+    google_token_encryption_key: str = ""
+    frontend_app_url: str = "http://localhost:5173"
+
     # Keep the higher-accuracy multilingual model as the default.
     whisper_model_size: str = "small"
     whisper_device: str = "cpu"
