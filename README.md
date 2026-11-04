@@ -116,3 +116,32 @@ All endpoints below require the Logsbee-issued Bearer access token.
 - VoiceDocs does not create or duplicate Logsbee users, accounts, roles, or permissions.
 
 The Logsbee membership verification route is provided by [logsbee-user PR #4](https://github.com/Onkar2104/logsbee-user/pull/4). Run Logsbee on the URL configured by `LOGSBEE_USER_API_BASE_URL`.
+
+
+## Voice-to-text with local Whisper
+
+VoiceDocs uses the open-source Whisper model through `faster-whisper`. Transcription runs on the VoiceDocs backend; no hosted transcription API key is required.
+
+The default configuration uses the multilingual `small` model on CPU with INT8 quantization:
+
+```env
+WHISPER_MODEL_SIZE=small
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+```
+
+You can change these settings in your local `.env`. The model is downloaded automatically the first time a transcription request is processed, so the first request can take longer and requires internet access. Subsequent requests reuse the loaded model.
+
+Supported model sizes include `tiny`, `base`, `small`, `medium`, and `large-v3`. Larger models generally improve accuracy but require more memory and processing time. The multilingual models support automatic language detection; pass a Whisper language code to the optional `language` query parameter to force a language.
+
+### Transcription endpoint
+
+`POST /api/transcriptions/` (requires a Logsbee Bearer access token)
+
+Send multipart form data with an audio file in the `file` field. Optionally add a `language` query parameter such as `hi`, `mr`, or `en`. The response includes the transcript, detected language, confidence, duration, and timestamped segments. Audio uploads are limited to 25 MB.
+
+The editor offers two workflows:
+- **Live dictation:** periodically transcribes the current recording for a live preview, then inserts the final transcript when recording stops.
+- **Record & transcribe:** records the complete audio and transcribes it after recording stops.
+
+Live dictation is chunk-based rather than token-by-token streaming because Whisper processes audio segments. Microphone access requires HTTPS in deployed environments (localhost is allowed for local development).

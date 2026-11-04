@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     # Comma-separated browser origins allowed to call this API.
     cors_origins: str
 
+    # Keep the higher-accuracy multilingual model as the default.
+    whisper_model_size: str = "small"
+    whisper_device: str = "cpu"
+    whisper_compute_type: str = "int8"
+    whisper_cpu_threads: int = 8
+    # Batch multiple speech chunks together to improve CPU throughput.
+    whisper_batch_size: int = 8
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
