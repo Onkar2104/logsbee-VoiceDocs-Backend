@@ -50,7 +50,7 @@ class DocumentService:
         return DocumentRepository.create(db, document)
 
     @classmethod
-    def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my"):
+    def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my", page: int = 1, page_size: int = 10):
         account_id = cls._require_account(user)
         current_user_id = uuid.UUID(user.id)
 
@@ -74,7 +74,7 @@ class DocumentService:
         else:
             raise HTTPException(status_code=400, detail="Scope must be 'my', 'shared', or 'shared_by_me'.")
 
-        documents = query.order_by(Document.updated_at.desc()).all()
+        total_records = query.order_by(None).count()\n        documents = (\n            query.order_by(Document.updated_at.desc(), Document.id.desc())\n            .offset((page - 1) * page_size)\n            .limit(page_size)\n            .all()\n        )
 
         from app.integrations.logsbee.client import logsbee_client
         results = []
