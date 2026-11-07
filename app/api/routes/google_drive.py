@@ -65,20 +65,25 @@ def disconnect_google_drive(
 
 @router.get("/recordings")
 def list_recordings(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
-    items = GoogleDriveService.recordings(db, user.id)
-    return [{
-        "id": str(item.id),
-        "file_name": item.file_name,
-        "mime_type": item.mime_type,
-        "file_size": item.file_size,
-        "duration_seconds": item.duration_seconds,
-        "language": item.language,
-        "transcript": item.transcript,
-        "created_at": item.created_at.isoformat(),
-    } for item in items]
+    result = GoogleDriveService.recordings(db, user.id, page, page_size)
+    return {
+        "items": [{
+            "id": str(item.id),
+            "file_name": item.file_name,
+            "mime_type": item.mime_type,
+            "file_size": item.file_size,
+            "duration_seconds": item.duration_seconds,
+            "language": item.language,
+            "transcript": item.transcript,
+            "created_at": item.created_at.isoformat(),
+        } for item in result["items"]],
+        "pagination": result["pagination"],
+    }
 
 
 @router.get("/recordings/{recording_id}/content")
