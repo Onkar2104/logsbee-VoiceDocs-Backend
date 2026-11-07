@@ -3,7 +3,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0004_google_drive_document_backup"
+revision = "0004_drive_doc_backup"
 down_revision = "0003_google_drive_recordings"
 branch_labels = None
 depends_on = None
