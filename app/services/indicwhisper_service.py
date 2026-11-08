@@ -19,7 +19,6 @@ MODEL_ARCHIVES = {
     "hi": "https://indicwhisper.objectstore.e2enetworks.net/hindi_models.zip",
     "mr": "https://indicwhisper.objectstore.e2enetworks.net/marathi_models.zip",
 }
-LANGUAGE_NAMES = {"hi": "hindi", "mr": "marathi"}
 MODEL_LOCK = Lock()
 INFERENCE_LOCK = Lock()
 PIPELINES: dict[str, object] = {}
@@ -118,7 +117,7 @@ def _load_pipeline(language: str):
                     device = 0 if settings.indicwhisper_device.lower() == "cuda" and torch.cuda.is_available() else -1
                     asr = pipeline("automatic-speech-recognition", model=str(model_dir), device=device)
                     asr.model.config.forced_decoder_ids = asr.tokenizer.get_decoder_prompt_ids(
-                        language=LANGUAGE_NAMES[language], task="transcribe"
+                        language=language, task="transcribe"
                     )
                 except Exception as exc:
                     raise TranscriptionProviderUnavailableError(
@@ -173,8 +172,21 @@ class IndicWhisperService:
                 wav_path = target.name
             duration = _convert_audio(source_path, wav_path)
             asr = _load_pipeline(language)
+            # Pass decoded samples to Transformers instead of a filename. This avoids
+            # its optional FFmpeg subprocess dependency on Windows.
+            import numpy as np
+
+            with wave.open(wav_path, "rb") as wav_file:
+                sample_rate = wav_file.getframerate()
+                samples = np.frombuffer(wav_file.readframes(wav_file.getnframes()), dtype=np.int16)
+            if sample_rate != 16000:
+                raise ValueError("Audio conversion did not produce the required 16 kHz sample rate.")
+            audio_input = {
+                "raw": samples.astype(np.float32) / 32768.0,
+                "sampling_rate": sample_rate,
+            }
             with INFERENCE_LOCK:
-                output = asr(wav_path)
+                output = asr(audio_input)
             transcript = str(output.get("text", "") if isinstance(output, dict) else output).strip()
             return {
                 "text": transcript,
