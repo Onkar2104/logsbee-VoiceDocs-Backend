@@ -37,6 +37,10 @@ Official setup and model references:
 - [Hindi model card](https://huggingface.co/ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large)
 - [Marathi model card](https://huggingface.co/ai4bharat/indicconformer_stt_mr_hybrid_ctc_rnnt_large)
 
+**Hugging Face access is required:** these model repositories require you to sign in and accept the access conditions for each language model before downloading. Open the [Hindi model page](https://huggingface.co/ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large) and [Marathi model page](https://huggingface.co/ai4bharat/indicconformer_stt_mr_hybrid_ctc_rnnt_large), sign in, and accept the repository conditions. Then authenticate the same runtime with a Hugging Face read token (for example, run `hf auth login` in that environment). Never commit the token or put it in frontend configuration.
+
+**Windows note:** AI4Bharat's NeMo installation is Linux-oriented. For this Windows development setup, use WSL2 with Ubuntu (or a Linux machine) rather than assuming the `reinstall.sh` instructions will work in native PowerShell. Install NeMo and run Uvicorn inside the same Linux environment.
+
 After installing AI4Bharat NeMo into the Python environment used by VoiceDocs, set:
 
 ```env
