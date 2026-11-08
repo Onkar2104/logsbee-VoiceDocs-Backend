@@ -7,6 +7,7 @@ from app.api.dependencies.current_user import get_current_user
 from app.db.session import get_db
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.transcription_service import TranscriptionService
+from app.services.transcription_errors import TranscriptionProviderUnavailableError
 from app.services.google_drive_service import GoogleDriveService
 
 
@@ -39,6 +40,9 @@ def transcribe_audio(
     filename = file.filename or "recording.webm"
     try:
         result = TranscriptionService.transcribe(audio_bytes, filename, language, provider)
+    except TranscriptionProviderUnavailableError as exc:
+        logger.exception("Transcription provider is unavailable")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
