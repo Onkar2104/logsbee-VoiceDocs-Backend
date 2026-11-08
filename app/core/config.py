@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     frontend_app_url: str = "http://localhost:5173"
 
     # Keep the higher-accuracy multilingual model as the default.
-    whisper_model_size: str = "small"
-    whisper_device: str = "cpu"
-    whisper_compute_type: str = "int8"
+    whisper_model_size: str = ""
+    whisper_device: str = ""
+    whisper_compute_type: str = ""
     whisper_cpu_threads: int = 8
     # Batch multiple speech chunks together to improve CPU throughput.
     whisper_batch_size: int = 8
