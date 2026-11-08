@@ -23,7 +23,7 @@ ALLOWED_AUDIO_TYPES = {
 def transcribe_audio(
     file: UploadFile = File(...),
     language: str | None = Query(default=None, min_length=2, max_length=10),
-    provider: str | None = Query(default=None, pattern="^(whisper|indicconformer)$"),
+    provider: str | None = Query(default=None, pattern="^(whisper|indicconformer|indicwhisper)$"),
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
