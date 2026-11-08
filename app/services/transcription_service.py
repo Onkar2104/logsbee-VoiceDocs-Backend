@@ -6,6 +6,7 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 from app.core.config import settings
 from app.services.indicconformer_service import IndicConformerService
+from app.services.indicwhisper_service import IndicWhisperService
 
 
 _model_lock = Lock()
@@ -49,8 +50,10 @@ class TranscriptionService:
         selected_provider = (provider or settings.transcription_provider).strip().lower()
         if selected_provider == "indicconformer":
             return IndicConformerService.transcribe(audio_bytes, filename, language)
+        if selected_provider == "indicwhisper":
+            return IndicWhisperService.transcribe(audio_bytes, filename, language)
         if selected_provider != "whisper":
-            raise ValueError("Unsupported transcription provider. Choose whisper or indicconformer.")
+            raise ValueError("Unsupported transcription provider. Choose whisper, indicconformer, or indicwhisper.")
 
         suffix = os.path.splitext(filename or "")[1].lower() or ".webm"
         if len(suffix) > 10 or not suffix.startswith("."):
