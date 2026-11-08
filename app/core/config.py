@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # Use CPU by default. Set to cuda only when a compatible NVIDIA setup is available.
     indicconformer_device: str = "cpu"
 
+    indicwhisper_device: str = "cpu"
+    indicwhisper_model_cache_dir: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
