@@ -1,4 +1,0 @@
-# Optional dependencies for the AI4Bharat IndicConformer provider.
-# Install AI4Bharat's NeMo fork separately as documented in README.md.
-# Keep this file separate from requirements.txt to avoid changing the Whisper environment.
-av>=12.0.0
