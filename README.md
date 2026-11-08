@@ -25,7 +25,7 @@ Whisper supports automatic language detection. You can continue using `language=
 
 IndicConformer requires AI4Bharat's NeMo fork. It is intentionally not added to the normal `requirements.txt`, because NeMo/PyTorch has a substantial dependency footprint and may conflict with an existing Whisper environment. Install it in a dedicated Python environment first, following AI4Bharat's official instructions:
 
-```powershell
+```bash
 git clone https://github.com/AI4Bharat/NeMo.git
 cd NeMo
 git checkout nemo-v2
