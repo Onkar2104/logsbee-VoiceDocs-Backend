@@ -8,7 +8,7 @@ Keep the existing local service ports configured in your `.env`; this feature do
 
 ## Transcription providers
 
-VoiceDocs keeps `faster-whisper` as its default transcription provider. An optional AI4Bharat IndicConformer provider is available for Hindi (`hi`) and Marathi (`mr`). Both providers use the existing authenticated `POST /api/transcriptions/` endpoint and return the same transcript response shape. The selected provider is included as `transcription_provider` in the response.
+VoiceDocs keeps `faster-whisper` as its default transcription provider. Optional AI4Bharat IndicConformer and IndicWhisper providers are available for Hindi (`hi`) and Marathi (`mr`). Both providers use the existing authenticated `POST /api/transcriptions/` endpoint and return the same transcript response shape. The selected provider is included as `transcription_provider` in the response.
 
 ### Existing Whisper provider
 
@@ -51,6 +51,33 @@ INDICCONFORMER_DEVICE=cpu
 Restart the VoiceDocs backend. Send `language=hi` for Hindi or `language=mr` for Marathi. IndicConformer does not use Whisper-style automatic language detection in this integration, so an explicit language is required. You can also test without changing `.env` by passing `provider=indicconformer` on the transcription request. The first request downloads the selected model from Hugging Face and loads it into memory; later requests reuse the in-memory model.
 
 IndicConformer expects 16 kHz mono WAV input. The backend converts supported uploaded audio to that format using PyAV before inference. The model response does not provide word-level timestamps or confidence, so the API returns a single full-audio segment and `language_probability: null` for this provider.
+
+### Optional AI4Bharat IndicWhisper provider
+
+IndicWhisper is AI4Bharat’s Whisper-medium fine-tuning trained on the Vistaar Indian-language speech datasets. This initial integration enables Hindi (`hi`) and Marathi (`mr`) while keeping the existing providers unchanged. The official Vistaar repository distributes language checkpoints as ZIP archives and demonstrates inference with a Hugging Face Transformers ASR pipeline.
+
+Install the optional dependencies into the same Python environment used by VoiceDocs:
+
+```powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements-indicwhisper.txt
+```
+
+Configure `.env`:
+
+```env
+TRANSCRIPTION_PROVIDER=indicwhisper
+INDICWHISPER_DEVICE=cpu
+INDICWHISPER_MODEL_CACHE_DIR=
+```
+
+Send `language=hi` or `language=mr`. On first use, the backend downloads the matching public AI4Bharat model archive and extracts it into the cache directory (default: `~/.cache/voicedocs/indicwhisper`). Each archive is several hundred MB; allow disk space and time for the first request. No Hugging Face login is required for these public Vistaar archives.
+
+The Whisper-medium checkpoints can be slow on a CPU. This provider converts uploaded audio to 16 kHz mono WAV and returns one full-audio segment with `language_probability: null`. Model inference has not yet been runtime-tested in this repository environment; verify it with real Hindi and Marathi recordings before enabling it for users.
+
+Official references:
+- [AI4Bharat Vistaar / IndicWhisper repository](https://github.com/AI4Bharat/vistaar)
+- [AI4Bharat ASR overview](https://ai4bharat.iitm.ac.in/)
 
 ### Hardware note
 
