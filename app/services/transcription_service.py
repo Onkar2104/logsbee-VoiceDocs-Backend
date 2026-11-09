@@ -7,7 +7,6 @@ from faster_whisper import BatchedInferencePipeline, WhisperModel
 from app.core.config import settings
 from app.services.indicconformer_service import IndicConformerService
 
-
 _model_lock = Lock()
 _pipeline_lock = Lock()
 _model: WhisperModel | None = None

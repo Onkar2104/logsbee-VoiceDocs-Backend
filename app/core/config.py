@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     environment: str
     debug: bool
     database_url: str
-
     logsbee_user_api_base_url: str
     logsbee_user_api_timeout_seconds: float
     cors_origins: str
