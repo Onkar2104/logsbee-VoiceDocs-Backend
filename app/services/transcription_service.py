@@ -5,6 +5,7 @@ from threading import Lock
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 from app.core.config import settings
+from app.services.indicconformer_service import IndicConformerService
 
 
 _model_lock = Lock()
@@ -39,16 +40,22 @@ def get_whisper_pipeline() -> BatchedInferencePipeline:
 
 class TranscriptionService:
     @staticmethod
-    def transcribe(audio_bytes: bytes, filename: str, language: str | None = None) -> dict:
+    def transcribe(
+        audio_bytes: bytes,
+        filename: str,
+        language: str | None = None,
+        provider: str | None = None,
+    ) -> dict:
+        selected_provider = (provider or settings.transcription_provider).strip().lower()
+        if selected_provider == "indicconformer":
+            return IndicConformerService.transcribe(audio_bytes, filename, language)
+        if selected_provider != "whisper":
+            raise ValueError("Unsupported transcription provider. Choose whisper or indicconformer.")
+
         suffix = os.path.splitext(filename or "")[1].lower() or ".webm"
         if len(suffix) > 10 or not suffix.startswith("."):
             suffix = ".webm"
-
-        # Auto mode must be able to handle recordings where the spoken language
-        # changes between chunks (for example, Marathi mixed with English).
-        # Manual language selection remains a forced-language transcription.
         auto_detect = not language
-
         temp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as audio_file:
@@ -60,25 +67,15 @@ class TranscriptionService:
                 language=language or None,
                 task="transcribe",
                 vad_filter=True,
-                vad_parameters={
-                    "min_silence_duration_ms": 800,
-                    "speech_pad_ms": 400,
-                },
+                vad_parameters={"min_silence_duration_ms": 800, "speech_pad_ms": 400},
                 beam_size=5,
-                # faster-whisper's batched pipeline does not use
-                # condition_on_previous_text; multilingual controls per-chunk
-                # language detection when Auto-detect is selected.
                 multilingual=auto_detect,
                 language_detection_segments=3,
                 language_detection_threshold=0.5,
                 batch_size=settings.whisper_batch_size,
             )
             results = [
-                {
-                    "start": round(segment.start, 2),
-                    "end": round(segment.end, 2),
-                    "text": segment.text.strip(),
-                }
+                {"start": round(segment.start, 2), "end": round(segment.end, 2), "text": segment.text.strip()}
                 for segment in segments
             ]
             return {
@@ -87,6 +84,7 @@ class TranscriptionService:
                 "language_probability": round(info.language_probability, 4),
                 "duration": round(info.duration, 2),
                 "segments": results,
+                "transcription_provider": "whisper",
             }
         finally:
             if temp_path and os.path.exists(temp_path):
