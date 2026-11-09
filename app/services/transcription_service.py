@@ -43,9 +43,8 @@ class TranscriptionService:
         audio_bytes: bytes,
         filename: str,
         language: str | None = None,
-        provider: str | None = None,
     ) -> dict:
-        selected_provider = (provider or settings.transcription_provider).strip().lower()
+        selected_provider = settings.transcription_provider.strip().lower()
         if selected_provider == "indicconformer":
             return IndicConformerService.transcribe(audio_bytes, filename, language)
         if selected_provider != "whisper":
