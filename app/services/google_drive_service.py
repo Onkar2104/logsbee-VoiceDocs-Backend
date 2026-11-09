@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -228,12 +228,29 @@ class GoogleDriveService:
         return {"id": str(item.id), "file_name": item.file_name}
 
     @staticmethod
-    def recordings(db: Session, user_id: str) -> list[AudioRecording]:
-        return list(db.scalars(
-            select(AudioRecording).where(
-                AudioRecording.user_id == GoogleDriveService._user_id(user_id)
-            ).order_by(AudioRecording.created_at.desc())
+    def recordings(db: Session, user_id: str, page: int = 1, page_size: int = 10) -> dict:
+        user_uuid = GoogleDriveService._user_id(user_id)
+        base_query = select(AudioRecording).where(AudioRecording.user_id == user_uuid)
+        total_records = db.scalar(
+            select(func.count()).select_from(AudioRecording).where(AudioRecording.user_id == user_uuid)
+        ) or 0
+        items = list(db.scalars(
+            base_query.order_by(AudioRecording.created_at.desc(), AudioRecording.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         ))
+        total_pages = (total_records + page_size - 1) // page_size
+        return {
+            "items": items,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_records": total_records,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1,
+            },
+        }
 
     @staticmethod
     def download(db: Session, user_id: str, recording_id: uuid.UUID) -> tuple[bytes, str, str]:

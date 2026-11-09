@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, Float
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +20,8 @@ class GoogleDriveConnection(Base):
     google_email: Mapped[str] = mapped_column(String(320), nullable=False)
     encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
     recordings_folder_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    documents_folder_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    auto_backup_documents: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 

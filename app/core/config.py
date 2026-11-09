@@ -13,19 +13,23 @@ class Settings(BaseSettings):
     logsbee_user_api_timeout_seconds: float
     cors_origins: str
 
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_redirect_uri: str = ""
-    google_token_encryption_key: str = ""
-    frontend_app_url: str = "http://localhost:5173"
+    # Google OAuth
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
+    google_token_encryption_key: str
+    frontend_app_url: str
 
-    transcription_provider: str = "whisper"
-    whisper_model_size: str = "small"
-    whisper_device: str = "cpu"
-    whisper_compute_type: str = "int8"
-    whisper_cpu_threads: int = 8
-    whisper_batch_size: int = 8
-    indicconformer_device: str = "cpu"
+    # Transcription
+    transcription_provider: str
+    whisper_model_size: str
+    whisper_device: str
+    whisper_compute_type: str
+    whisper_cpu_threads: int
+    whisper_batch_size: int
+
+    # IndicConformer
+    indicconformer_device: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
