@@ -8,13 +8,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str
     environment: str
     debug: bool
-
     database_url: str
-
     logsbee_user_api_base_url: str
     logsbee_user_api_timeout_seconds: float
-
-    # Comma-separated browser origins allowed to call this API.
     cors_origins: str
 
     google_client_id: str = ""
@@ -23,13 +19,13 @@ class Settings(BaseSettings):
     google_token_encryption_key: str = ""
     frontend_app_url: str = "http://localhost:5173"
 
-    # Keep the higher-accuracy multilingual model as the default.
+    transcription_provider: str = "whisper"
     whisper_model_size: str = "small"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     whisper_cpu_threads: int = 8
-    # Batch multiple speech chunks together to improve CPU throughput.
     whisper_batch_size: int = 8
+    indicconformer_device: str = "cpu"
 
     model_config = SettingsConfigDict(
         env_file=".env",
