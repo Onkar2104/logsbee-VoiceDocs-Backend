@@ -1,7 +1,8 @@
 from app.models.document import Document, DocumentShare
-
-__all__ = ["Document", "DocumentShare"]
-
 from app.models.google_drive import AudioRecording, GoogleDriveConnection, GoogleOAuthState
+from app.models.user_preferences import UserPreferences
 
-__all__ += ["AudioRecording", "GoogleDriveConnection", "GoogleOAuthState"]
+__all__ = [
+    "Document", "DocumentShare", "AudioRecording", "GoogleDriveConnection",
+    "GoogleOAuthState", "UserPreferences",
+]
