@@ -1,7 +1,7 @@
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -119,7 +119,7 @@ def upload_recording(
     file: UploadFile = File(...),
     duration: float | None = Query(default=None, ge=0),
     language: str | None = Query(default=None, min_length=2, max_length=10),
-    transcript: str | None = Query(default=None),
+    transcript: str | None = Form(default=None),
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
