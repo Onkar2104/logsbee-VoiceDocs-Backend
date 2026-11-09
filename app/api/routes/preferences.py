@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.current_user import get_current_user
+from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.logsbee import LogsbeeUserContext
 from app.models.user_preferences import UserPreferences
@@ -24,13 +25,16 @@ def _get_or_create(db: Session, user_id):
     return preferences
 
 
+def _serialize(preferences: UserPreferences):
+    return {
+        "transcription_language": preferences.transcription_language,
+        "transcription_provider": settings.transcription_provider.strip().lower(),
+    }
+
+
 @router.get("/")
-def get_preferences(
-    db: Session = Depends(get_db),
-    user: LogsbeeUserContext = Depends(get_current_user),
-):
-    preferences = _get_or_create(db, user.id)
-    return {"transcription_language": preferences.transcription_language}
+def get_preferences(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return _serialize(_get_or_create(db, user.id))
 
 
 @router.put("/")
@@ -43,4 +47,4 @@ def update_preferences(
     preferences.transcription_language = payload.transcription_language
     db.commit()
     db.refresh(preferences)
-    return {"transcription_language": preferences.transcription_language}
+    return _serialize(preferences)
