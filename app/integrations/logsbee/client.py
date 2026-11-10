@@ -92,8 +92,6 @@ class LogsbeeClient:
             raise HTTPException(status_code=503, detail="Logsbee User Management API is unavailable.")
 
 
-logsbee_client = LogsbeeClient()
-
 
     def request_two_factor_otp(self, access_token: str) -> dict:
         return self._two_factor_request(access_token, "POST", "/api/users/me/two-factor/email", {})
@@ -125,3 +123,6 @@ logsbee_client = LogsbeeClient()
             raise HTTPException(status_code=503, detail="Logsbee User Management API timed out.")
         except httpx.RequestError:
             raise HTTPException(status_code=503, detail="Logsbee User Management API is unavailable.")
+
+
+logsbee_client = LogsbeeClient()
