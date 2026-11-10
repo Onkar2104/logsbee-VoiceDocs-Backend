@@ -112,7 +112,7 @@ class DocumentService:
                 "title": document.title,
                 "content": document.content,
                 "backup_status": document.backup_status,
-                "drive_web_view_link": document.drive_web_view_link,
+                "drive_web_view_link": document.drive_web_view_link,\n                "audio_backup_status": "not_backed_up" if db.query(AudioRecording.id).filter(AudioRecording.document_id == document.id, AudioRecording.backup_status != "backed_up").count() else "backed_up",
                 "owner_user_id": document.owner_user_id,
                 "account_id": document.account_id,
                 "created_at": document.created_at,
@@ -225,7 +225,7 @@ class DocumentService:
             AudioRecording.document_id == document.id,
             AudioRecording.backup_status != "backed_up",
         ).count()
-        return {"backed_up": audio_pending == 0, "backup_status": document.backup_status, "audio_backed_up": audio_backed_up, "audio_pending": audio_pending}
+        return {"backed_up": audio_pending == 0, "backup_status": document.backup_status, "audio_backup_status": "not_backed_up" if audio_pending else "backed_up", "audio_backed_up": audio_backed_up, "audio_pending": audio_pending}
 
     @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
