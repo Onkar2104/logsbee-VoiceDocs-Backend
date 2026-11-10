@@ -231,21 +231,29 @@ class DocumentService:
         content = changes.get("content")
         if content is None:
             content = cls._with_content(db, document).content
-        if document.drive_file_id:
-            remote = GoogleDriveService.update_drive_document(
-                db, str(document.owner_user_id), document.drive_file_id, title, content
-            )
-        else:
-            # Backward compatibility: migrate an older database-only document on its next save.
-            remote = GoogleDriveService.upload_document(
-                db, str(document.owner_user_id), str(document.id), title, content
-            )
-            document.drive_file_id = remote["id"]
+        remote = None
+        try:
+            if document.drive_file_id:
+                remote = GoogleDriveService.update_drive_document(
+                    db, str(document.owner_user_id), document.drive_file_id, title, content
+                )
+            else:
+                remote = GoogleDriveService.upload_document(
+                    db, str(document.owner_user_id), str(document.id), title, content
+                )
+        except HTTPException:
+            remote = None
         document.title = title
-        document.content = ""
-        document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
-        document.backup_status = "backed_up"
-        document.last_backup_at = datetime.now(timezone.utc)
+        if remote:
+            document.drive_file_id = remote["id"]
+            document.content = ""
+            document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+            document.backup_status = "backed_up"
+            document.last_backup_at = datetime.now(timezone.utc)
+        else:
+            document.content = content
+            document.drive_file_id = None
+            document.backup_status = "not_backed_up"
         document.updated_by = uuid.UUID(user.id)
         document.updated_at = datetime.now(timezone.utc)
         DocumentRepository.commit(db)
