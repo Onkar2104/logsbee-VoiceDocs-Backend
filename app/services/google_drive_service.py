@@ -228,6 +228,91 @@ class GoogleDriveService:
         return {"id": str(item.id), "file_name": item.file_name}
 
     @staticmethod
+    def _documents_folder(db: Session, connection: GoogleDriveConnection, token: str) -> str:
+        if connection.documents_folder_id:
+            return connection.documents_folder_id
+        response = GoogleDriveService._drive_request(
+            "POST", f"{DRIVE_API}/files", token,
+            params={"fields": "id"},
+            json={"name": "VoiceDocs Documents", "mimeType": "application/vnd.google-apps.folder"},
+        )
+        connection.documents_folder_id = response.json()["id"]
+        db.commit()
+        return connection.documents_folder_id
+
+    @staticmethod
+    def upload_document(db: Session, owner_user_id: str, document_id: str, title: str, content: str) -> dict:
+        connection = GoogleDriveService.connection(db, owner_user_id)
+        if not connection:
+            raise HTTPException(status_code=409, detail="Connect Google Drive before creating or saving a document.")
+        token = GoogleDriveService._access_token(db, connection)
+        folder_id = GoogleDriveService._documents_folder(db, connection, token)
+        safe_title = (title or "Untitled document").replace("/", "_").replace(chr(92), "_").strip()[:220]
+        filename = f"{safe_title or 'Untitled document'}.html"
+        html = (content or "").encode("utf-8")
+        boundary = "voicedocs_" + secrets.token_hex(16)
+        marker = boundary.encode("ascii")
+        metadata = json.dumps({
+            "name": filename,
+            "mimeType": "text/html",
+            "parents": [folder_id],
+        }).encode("utf-8")
+        body = (
+            b"--" + marker + b"\r\n"
+            b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            + metadata + b"\r\n"
+            b"--" + marker + b"\r\n"
+            b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
+            + html + b"\r\n"
+            b"--" + marker + b"--"
+        )
+        response = GoogleDriveService._drive_request(
+            "POST", f"{UPLOAD_API}/files", token,
+            params={"uploadType": "multipart", "fields": "id,name,webViewLink,mimeType"},
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            content=body,
+        )
+        return response.json()
+
+    @staticmethod
+    def update_drive_document(db: Session, owner_user_id: str, drive_file_id: str, title: str, content: str) -> dict:
+        connection = GoogleDriveService.connection(db, owner_user_id)
+        if not connection:
+            raise HTTPException(status_code=409, detail="Reconnect the document owner's Google Drive to save changes.")
+        token = GoogleDriveService._access_token(db, connection)
+        safe_title = (title or "Untitled document").replace("/", "_").replace(chr(92), "_").strip()[:220]
+        boundary = "voicedocs_" + secrets.token_hex(16)
+        marker = boundary.encode("ascii")
+        metadata = json.dumps({"name": f"{safe_title or 'Untitled document'}.html", "mimeType": "text/html"}).encode("utf-8")
+        body = (
+            b"--" + marker + b"\r\n"
+            b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            + metadata + b"\r\n"
+            b"--" + marker + b"\r\n"
+            b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
+            + (content or "").encode("utf-8") + b"\r\n"
+            b"--" + marker + b"--"
+        )
+        response = GoogleDriveService._drive_request(
+            "PATCH", f"{UPLOAD_API}/files/{drive_file_id}", token,
+            params={"uploadType": "multipart", "fields": "id,name,webViewLink,mimeType"},
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+            content=body,
+        )
+        return response.json()
+
+    @staticmethod
+    def download_document(db: Session, owner_user_id: str, drive_file_id: str) -> str:
+        connection = GoogleDriveService.connection(db, owner_user_id)
+        if not connection:
+            raise HTTPException(status_code=409, detail="Reconnect the document owner's Google Drive to access this document.")
+        token = GoogleDriveService._access_token(db, connection)
+        response = GoogleDriveService._drive_request(
+            "GET", f"{DRIVE_API}/files/{drive_file_id}", token, params={"alt": "media"}
+        )
+        return response.content.decode("utf-8")
+
+    @staticmethod
     def recordings(db: Session, user_id: str, page: int = 1, page_size: int = 10) -> dict:
         user_uuid = GoogleDriveService._user_id(user_id)
         base_query = select(AudioRecording).where(AudioRecording.user_id == user_uuid)
