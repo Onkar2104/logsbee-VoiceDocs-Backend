@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.document import Document, DocumentShare
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentCreate, DocumentUpdate
+from app.services.google_drive_service import GoogleDriveService
 
 
 class DocumentService:
@@ -43,11 +44,26 @@ class DocumentService:
         account_id = cls._require_account(user)
         document = Document(
             title=data.title.strip(),
-            content=data.content,
+            content="",
             owner_user_id=uuid.UUID(user.id),
             account_id=account_id,
         )
-        return DocumentRepository.create(db, document)
+        db.add(document)
+        db.flush()
+        try:
+            remote = GoogleDriveService.upload_document(
+                db, user.id, str(document.id), document.title, data.content
+            )
+            document.drive_file_id = remote["id"]
+            document.drive_web_view_link = remote.get("webViewLink")
+            document.backup_status = "backed_up"
+            document.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(document)
+            return cls._with_content(db, document)
+        except Exception:
+            db.rollback()
+            raise
 
     @classmethod
     def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my", page: int = 1, page_size: int = 10):
@@ -89,7 +105,7 @@ class DocumentService:
             item = {
                 "id": document.id,
                 "title": document.title,
-                "content": document.content,
+                "content": cls._with_content(db, document).content,
                 "owner_user_id": document.owner_user_id,
                 "account_id": document.account_id,
                 "created_at": document.created_at,
@@ -145,8 +161,17 @@ class DocumentService:
         return {"shared_by_me_count": shared_by_me_count}
 
     @classmethod
+    def _with_content(cls, db: Session, document: Document) -> Document:
+        if document.drive_file_id:
+            document.content = GoogleDriveService.download_document(
+                db, str(document.owner_user_id), document.drive_file_id
+            )
+        return document
+
+    @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
-        return cls._get_visible_document(db, document_id, user)
+        document = cls._get_visible_document(db, document_id, user)
+        return cls._with_content(db, document)
 
     @classmethod
     def update(cls, db: Session, document_id: uuid.UUID, data: DocumentUpdate, user):
@@ -156,13 +181,30 @@ class DocumentService:
             if share is None or share.edit_request_status != "approved":
                 raise HTTPException(status_code=403, detail="Edit access has not been approved.")
         changes = data.model_dump(exclude_unset=True)
-        for field, value in changes.items():
-            setattr(document, field, value)
+        title = changes.get("title", document.title)
+        content = changes.get("content")
+        if content is None:
+            content = cls._with_content(db, document).content
+        if document.drive_file_id:
+            remote = GoogleDriveService.update_drive_document(
+                db, str(document.owner_user_id), document.drive_file_id, title, content
+            )
+        else:
+            # Backward compatibility: migrate an older database-only document on its next save.
+            remote = GoogleDriveService.upload_document(
+                db, str(document.owner_user_id), str(document.id), title, content
+            )
+            document.drive_file_id = remote["id"]
+        document.title = title
+        document.content = ""
+        document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+        document.backup_status = "backed_up"
+        document.last_backup_at = datetime.now(timezone.utc)
         document.updated_by = uuid.UUID(user.id)
         document.updated_at = datetime.now(timezone.utc)
         DocumentRepository.commit(db)
         db.refresh(document)
-        return document
+        return cls._with_content(db, document)
 
     @classmethod
     def delete(cls, db: Session, document_id: uuid.UUID, user):
