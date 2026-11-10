@@ -125,30 +125,48 @@ def upload_recording(
     duration: float | None = Query(default=None, ge=0),
     language: str | None = Query(default=None, min_length=2, max_length=10),
     transcript: str | None = Form(default=None),
+    document_id: uuid.UUID | None = Form(default=None),
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
     media_type = (file.content_type or "").split(";")[0].strip().lower()
     if media_type and media_type not in ALLOWED_RECORDING_TYPES:
         raise HTTPException(status_code=415, detail="Unsupported audio format.")
-
     audio_bytes = file.file.read(MAX_RECORDING_SIZE + 1)
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="The recording file is empty.")
     if len(audio_bytes) > MAX_RECORDING_SIZE:
         raise HTTPException(status_code=413, detail="Recording files must be 25 MB or smaller.")
 
-    saved = GoogleDriveService.upload_recording(
-        db=db,
-        user_id=user.id,
-        audio=audio_bytes,
-        filename=file.filename or "browser-recording.webm",
-        mime_type=media_type or "application/octet-stream",
-        duration=duration,
-        language=language,
-        transcript=transcript,
-    )
-    if saved is None:
-        raise HTTPException(status_code=409, detail="Connect Google Drive before saving a recording.")
+    filename = file.filename or "browser-recording.webm"
+    try:
+        saved = GoogleDriveService.upload_recording(
+            db=db, user_id=user.id, audio=audio_bytes, filename=filename,
+            mime_type=media_type or "application/octet-stream",
+            duration=duration, language=language, transcript=transcript,
+            document_id=document_id,
+        )
+    except HTTPException:
+        saved = None
 
-    return {"saved": True, "recording": saved}
+    if saved is None:
+        from app.models.google_drive import AudioRecording
+        item = AudioRecording(
+            user_id=GoogleDriveService._user_id(user.id),
+            document_id=document_id,
+            drive_file_id=None,
+            file_data=audio_bytes,
+            backup_status="not_backed_up",
+            file_name=filename,
+            mime_type=media_type or "application/octet-stream",
+            file_size=len(audio_bytes),
+            duration_seconds=duration,
+            language=language,
+            transcript=transcript,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        saved = {"id": str(item.id), "file_name": item.file_name, "backup_status": item.backup_status}
+
+    return {"saved": True, "recording": saved, "backup_status": saved.get("backup_status", "backed_up")}
