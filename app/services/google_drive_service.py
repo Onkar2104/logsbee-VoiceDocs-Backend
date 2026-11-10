@@ -308,9 +308,17 @@ class GoogleDriveService:
         if not connection:
             raise HTTPException(status_code=409, detail="Reconnect the document owner's Google Drive to access this document.")
         token = GoogleDriveService._access_token(db, connection)
+        metadata = GoogleDriveService._drive_request(
+            "GET", f"{DRIVE_API}/files/{drive_file_id}", token,
+            params={"fields": "mimeType,name"},
+        ).json()
         response = GoogleDriveService._drive_request(
             "GET", f"{DRIVE_API}/files/{drive_file_id}", token, params={"alt": "media"}
         )
+        # Read existing HTML backups during the transition; new saves convert
+        # them to DOCX through update_drive_document.
+        if metadata.get("mimeType") == "text/html" or (metadata.get("name") or "").lower().endswith(".html"):
+            return response.content.decode("utf-8")
         return docx_to_html(response.content)
 
     @staticmethod
