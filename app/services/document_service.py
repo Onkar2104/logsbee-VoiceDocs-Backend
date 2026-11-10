@@ -7,12 +7,18 @@ from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentShare
 from app.models.google_drive import AudioRecording
+from app.models.user_settings import UserSettings
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentCreate, DocumentUpdate
 from app.services.google_drive_service import GoogleDriveService
 
 
 class DocumentService:
+    @staticmethod
+    def _automatic_backup_enabled(db: Session, user_id: uuid.UUID) -> bool:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        return row.automatic_backup_enabled if row else True
+
     @staticmethod
     def _is_admin(user) -> bool:
         return bool(user.role and user.role.name.strip().lower() == "admin")
@@ -46,10 +52,11 @@ class DocumentService:
         document_id = uuid.uuid4()
         title = data.title.strip()
         remote = None
-        try:
-            remote = GoogleDriveService.upload_document(db, user.id, str(document_id), title, data.content)
-        except HTTPException:
-            remote = None
+        if cls._automatic_backup_enabled(db, uuid.UUID(user.id)):
+            try:
+                remote = GoogleDriveService.upload_document(db, user.id, str(document_id), title, data.content)
+            except HTTPException:
+                remote = None
         document = Document(
             id=document_id,
             title=title,
@@ -251,17 +258,18 @@ class DocumentService:
         if content is None:
             content = cls._with_content(db, document).content
         remote = None
-        try:
-            if document.drive_file_id:
-                remote = GoogleDriveService.update_drive_document(
-                    db, str(document.owner_user_id), document.drive_file_id, title, content
-                )
-            else:
-                remote = GoogleDriveService.upload_document(
-                    db, str(document.owner_user_id), str(document.id), title, content
-                )
-        except HTTPException:
-            remote = None
+        if cls._automatic_backup_enabled(db, document.owner_user_id):
+            try:
+                if document.drive_file_id:
+                    remote = GoogleDriveService.update_drive_document(
+                        db, str(document.owner_user_id), document.drive_file_id, title, content
+                    )
+                else:
+                    remote = GoogleDriveService.upload_document(
+                        db, str(document.owner_user_id), str(document.id), title, content
+                    )
+            except HTTPException:
+                remote = None
         document.title = title
         if remote:
             document.drive_file_id = remote["id"]
