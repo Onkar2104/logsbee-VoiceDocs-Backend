@@ -8,6 +8,7 @@ from app.db.base import Base
 from app.models.document import Document, DocumentShare
 from app.models.google_drive import AudioRecording, GoogleDriveConnection, GoogleOAuthState
 from app.models.user_preferences import UserPreferences
+from app.models.user_settings import UserSettings
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
