@@ -188,6 +188,7 @@ class GoogleDriveService:
         db: Session, user_id: str, audio: bytes, filename: str, mime_type: str,
         duration: float | None = None, language: str | None = None,
         transcript: str | None = None, document_id: uuid.UUID | None = None,
+        recording_id: uuid.UUID | None = None,
     ) -> dict | None:
         connection = GoogleDriveService.connection(db, user_id)
         if not connection:
@@ -210,19 +211,21 @@ class GoogleDriveService:
             headers={"Content-Type": f"multipart/related; boundary={boundary}"}, content=body,
         )
         remote = response.json()
-        item = AudioRecording(
-            user_id=GoogleDriveService._user_id(user_id),
-            document_id=document_id,
-            drive_file_id=remote["id"],
-            file_data=None,
-            backup_status="backed_up",
-            last_backup_at=datetime.now(timezone.utc),
-            file_name=remote.get("name", safe_name),
-            mime_type=remote.get("mimeType", mime_type),
-            file_size=int(remote.get("size", len(audio))),
-            duration_seconds=duration, language=language, transcript=transcript,
-        )
-        db.add(item)
+        item = db.get(AudioRecording, recording_id) if recording_id else None
+        if item is None:
+            item = AudioRecording(
+                user_id=GoogleDriveService._user_id(user_id),
+                document_id=document_id,
+                file_name=remote.get("name", safe_name),
+                mime_type=remote.get("mimeType", mime_type),
+                file_size=int(remote.get("size", len(audio))),
+                duration_seconds=duration, language=language, transcript=transcript,
+            )
+            db.add(item)
+        item.drive_file_id = remote["id"]
+        item.file_data = None
+        item.backup_status = "backed_up"
+        item.last_backup_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(item)
         return {"id": str(item.id), "file_name": item.file_name,
