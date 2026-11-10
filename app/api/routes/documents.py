@@ -37,6 +37,11 @@ def get_sharing_summary(db: Session = Depends(get_db), user: LogsbeeUserContext 
     return DocumentService.get_sharing_summary(db, user)
 
 
+@router.post("/{document_id}/backup")
+def backup_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.backup(db, document_id, user)
+
+
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     return DocumentService.get(db, document_id, user)
