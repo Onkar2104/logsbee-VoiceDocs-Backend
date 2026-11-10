@@ -9,6 +9,8 @@ from app.api.dependencies.current_user import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.document import Document
+from app.models.user_settings import UserSettings
+from app.services.document_service import DocumentService
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.google_drive_service import GoogleDriveService
 
@@ -69,6 +71,55 @@ def disconnect_google_drive(
         db.delete(connection)
         db.commit()
     return {"message": "Google Drive disconnected. Existing files remain in your Google Drive."}
+
+
+@router.post("/google-drive/backup-pending")
+def backup_pending_files(
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    """Resume all pending owner documents and audio when automatic backup is enabled."""
+    user_uuid = GoogleDriveService._user_id(user.id)
+    preferences = db.query(UserSettings).filter(UserSettings.user_id == user_uuid).first()
+    if preferences is not None and not preferences.automatic_backup_enabled:
+        raise HTTPException(status_code=409, detail="Automatic backup is disabled in your settings.")
+
+    connection = GoogleDriveService.connection(db, user.id)
+    if connection is None:
+        raise HTTPException(status_code=409, detail="Connect Google Drive before backing up pending files.")
+
+    pending_documents = db.query(Document).filter(
+        Document.owner_user_id == user_uuid,
+        Document.is_deleted.is_(False),
+        Document.backup_status != "backed_up",
+    ).order_by(Document.created_at.asc()).all()
+    from app.models.google_drive import AudioRecording
+    pending_audio = db.query(AudioRecording).filter(
+        AudioRecording.user_id == user_uuid,
+        AudioRecording.backup_status != "backed_up",
+    ).order_by(AudioRecording.created_at.asc()).all()
+
+    results = []
+    for document in pending_documents:
+        try:
+            outcome = DocumentService.backup(db, document.id, user)
+            results.append({"id": str(document.id), "type": "document", "status": "backed_up", "progress": 100, "details": outcome})
+        except HTTPException as exc:
+            results.append({"id": str(document.id), "type": "document", "status": "failed", "progress": 0, "error": exc.detail})
+
+    for recording in pending_audio:
+        try:
+            outcome = GoogleDriveService.backup_recording(db, user.id, recording.id)
+            results.append({"id": str(recording.id), "type": "audio", "status": "backed_up", "progress": 100, "details": outcome})
+        except HTTPException as exc:
+            results.append({"id": str(recording.id), "type": "audio", "status": "failed", "progress": 0, "error": exc.detail})
+
+    return {
+        "total": len(results),
+        "backed_up": sum(1 for item in results if item["status"] == "backed_up"),
+        "failed": sum(1 for item in results if item["status"] == "failed"),
+        "items": results,
+    }
 
 
 @router.get("/recordings")
@@ -156,6 +207,8 @@ def upload_recording(
             raise HTTPException(status_code=403, detail="Audio can only be attached to a document you own.")
 
     filename = file.filename or "browser-recording.webm"
+    user_settings = db.query(UserSettings).filter(UserSettings.user_id == GoogleDriveService._user_id(user.id)).first()
+    automatic_backup = user_settings.automatic_backup_enabled if user_settings else True
     try:
         saved = GoogleDriveService.upload_recording(
             db=db, user_id=user.id, audio=audio_bytes, filename=filename,
@@ -164,6 +217,9 @@ def upload_recording(
             document_id=document_id,
         )
     except HTTPException:
+        saved = None
+
+    if not automatic_backup:
         saved = None
 
     if saved is None:
