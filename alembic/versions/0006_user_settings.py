@@ -15,7 +15,6 @@ def upgrade() -> None:
         "user_settings",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("two_factor_enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("default_language", sa.String(length=12), nullable=False, server_default="en"),
         sa.Column("automatic_backup_enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -26,9 +25,9 @@ def upgrade() -> None:
     # Preserve existing language choices when moving from user_preferences.
     op.execute("""
         INSERT INTO user_settings
-            (id, user_id, two_factor_enabled, default_language,
+            (id, user_id, default_language,
              automatic_backup_enabled, created_at, updated_at)
-        SELECT md5(random()::text || clock_timestamp()::text)::uuid, user_id, FALSE, transcription_language,
+        SELECT md5(random()::text || clock_timestamp()::text)::uuid, user_id, transcription_language,
                TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         FROM user_preferences
         ON CONFLICT (user_id) DO NOTHING
