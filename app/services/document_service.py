@@ -178,6 +178,11 @@ class DocumentService:
             except HTTPException:
                 if not document.content:
                     raise
+        pending_audio = db.query(AudioRecording.id).filter(
+            AudioRecording.document_id == document.id,
+            AudioRecording.backup_status != "backed_up",
+        ).count()
+        document.audio_backup_status = "not_backed_up" if pending_audio else "backed_up"
         return document
 
     @classmethod
