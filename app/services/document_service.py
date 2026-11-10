@@ -110,7 +110,9 @@ class DocumentService:
             item = {
                 "id": document.id,
                 "title": document.title,
-                "content": document.content,\n                "backup_status": document.backup_status,\n                "drive_web_view_link": document.drive_web_view_link,
+                "content": document.content,
+                "backup_status": document.backup_status,
+                "drive_web_view_link": document.drive_web_view_link,
                 "owner_user_id": document.owner_user_id,
                 "account_id": document.account_id,
                 "created_at": document.created_at,
