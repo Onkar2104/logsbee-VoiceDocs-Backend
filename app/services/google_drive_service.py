@@ -226,7 +226,7 @@ class GoogleDriveService:
         db.add(item)
         db.commit()
         db.refresh(item)
-        return {"id": str(item.id), "file_name": item.file_name}
+        return {"id": str(item.id), "file_name": item.file_name, "drive_file_id": item.drive_file_id, "backup_status": item.backup_status}
 
     @staticmethod
     def _documents_folder(db: Session, connection: GoogleDriveConnection, token: str) -> str:
