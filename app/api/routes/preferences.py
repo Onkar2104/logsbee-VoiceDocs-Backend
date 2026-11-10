@@ -62,6 +62,6 @@ def update_preferences(
         row.automatic_backup_enabled = payload.automatic_backup_enabled
     db.commit()
     db.refresh(row)
-    return _serialize(row, user)
+    return _serialize(row)
 
 
