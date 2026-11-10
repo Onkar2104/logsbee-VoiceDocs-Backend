@@ -5,7 +5,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.document import Document, DocumentShare\nfrom app.models.google_drive import AudioRecording
+from app.models.document import Document, DocumentShare
+from app.models.google_drive import AudioRecording
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentCreate, DocumentUpdate
 from app.services.google_drive_service import GoogleDriveService
