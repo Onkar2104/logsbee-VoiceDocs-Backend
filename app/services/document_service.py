@@ -184,25 +184,26 @@ class DocumentService:
         document = cls._get_visible_document(db, document_id, user)
         if not cls._can_manage(document, user):
             raise HTTPException(status_code=403, detail="Only the owner or Account Admin can back up this document.")
-        try:
-            if document.drive_file_id:
-                remote = GoogleDriveService.update_drive_document(
-                    db, str(document.owner_user_id), document.drive_file_id, document.title, document.content
-                )
-            else:
-                remote = GoogleDriveService.upload_document(
-                    db, str(document.owner_user_id), str(document.id), document.title, document.content
-                )
-        except HTTPException:
-            raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
-        if not remote:
-            raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
-        document.drive_file_id = remote["id"]
-        document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
-        document.content = ""
-        document.backup_status = "backed_up"
-        document.last_backup_at = datetime.now(timezone.utc)
-        db.commit()
+        if document.backup_status != "backed_up":
+            try:
+                if document.drive_file_id:
+                    remote = GoogleDriveService.update_drive_document(
+                        db, str(document.owner_user_id), document.drive_file_id, document.title, document.content
+                    )
+                else:
+                    remote = GoogleDriveService.upload_document(
+                        db, str(document.owner_user_id), str(document.id), document.title, document.content
+                    )
+            except HTTPException:
+                raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
+            if not remote:
+                raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
+            document.drive_file_id = remote["id"]
+            document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+            document.content = ""
+            document.backup_status = "backed_up"
+            document.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
         audio_items = db.query(AudioRecording).filter(
             AudioRecording.document_id == document.id,
             AudioRecording.backup_status != "backed_up",
