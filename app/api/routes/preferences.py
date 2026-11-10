@@ -64,8 +64,6 @@ def update_preferences(
         row.default_language = language
     if payload.automatic_backup_enabled is not None:
         row.automatic_backup_enabled = payload.automatic_backup_enabled
-    db.commit()
-    db.refresh(row)
     row.two_factor_enabled = bool(user.is_two_factor_authenticated)
     db.commit()
     db.refresh(row)
