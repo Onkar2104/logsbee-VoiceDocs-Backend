@@ -220,7 +220,7 @@ class DocumentService:
                     audio_backed_up += 1
             except HTTPException:
                 db.rollback()
-        return {"backed_up": True, "backup_status": document.backup_status, "audio_backed_up": audio_backed_up}
+        audio_pending = db.query(AudioRecording).filter(\n            AudioRecording.document_id == document.id,\n            AudioRecording.backup_status != "backed_up",\n        ).count()\n        return {"backed_up": audio_pending == 0, "backup_status": document.backup_status, "audio_backed_up": audio_backed_up, "audio_pending": audio_pending}
 
     @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
