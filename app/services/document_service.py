@@ -181,25 +181,32 @@ class DocumentService:
         document = cls._get_visible_document(db, document_id, user)
         if not cls._can_manage(document, user):
             raise HTTPException(status_code=403, detail="Only the owner or Account Admin can back up this document.")
-        if not document.drive_file_id:
-            remote = GoogleDriveService.upload_document(
-                db, str(document.owner_user_id), str(document.id), document.title, document.content
-            )
-            if not remote:
-                raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
-            document.drive_file_id = remote["id"]
-            document.drive_web_view_link = remote.get("webViewLink")
-            document.content = ""
-            document.backup_status = "backed_up"
-            document.last_backup_at = datetime.now(timezone.utc)
-            db.commit()
+        try:
+            if document.drive_file_id:
+                remote = GoogleDriveService.update_drive_document(
+                    db, str(document.owner_user_id), document.drive_file_id, document.title, document.content
+                )
+            else:
+                remote = GoogleDriveService.upload_document(
+                    db, str(document.owner_user_id), str(document.id), document.title, document.content
+                )
+        except HTTPException:
+            raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
+        if not remote:
+            raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
+        document.drive_file_id = remote["id"]
+        document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+        document.content = ""
+        document.backup_status = "backed_up"
+        document.last_backup_at = datetime.now(timezone.utc)
+        db.commit()
         audio_items = db.query(AudioRecording).filter(
             AudioRecording.document_id == document.id,
             AudioRecording.backup_status != "backed_up",
         ).all()
         audio_backed_up = 0
         for audio in audio_items:
-            saved = GoogleDriveService.upload_recording(
+            try:\n                saved = GoogleDriveService.upload_recording(
                 db=db, user_id=str(audio.user_id), audio=audio.file_data or b"",
                 filename=audio.file_name, mime_type=audio.mime_type,
                 duration=audio.duration_seconds, language=audio.language,
@@ -252,7 +259,6 @@ class DocumentService:
             document.last_backup_at = datetime.now(timezone.utc)
         else:
             document.content = content
-            document.drive_file_id = None
             document.backup_status = "not_backed_up"
         document.updated_by = uuid.UUID(user.id)
         document.updated_at = datetime.now(timezone.utc)
