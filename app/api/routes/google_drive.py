@@ -95,6 +95,15 @@ def list_recordings(
     }
 
 
+@router.post("/recordings/{recording_id}/backup")
+def backup_recording(
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.backup_recording(db, user.id, recording_id)
+
+
 @router.get("/recordings/{recording_id}/content")
 def recording_content(
     recording_id: uuid.UUID,
