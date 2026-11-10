@@ -41,10 +41,10 @@ def google_drive_callback(
 ):
     base_url = settings.frontend_app_url.rstrip("/")
     if error or not code or not state:
-        return RedirectResponse(f"{base_url}/?google_drive=error")
+        return RedirectResponse(f"{base_url}/drive?google_drive=error")
     try:
         email = GoogleDriveService.complete_oauth(db, code, state)
-        return RedirectResponse(f"{base_url}/?google_drive=connected&email={quote(email)}")
+        return RedirectResponse(f"{base_url}/drive?google_drive=connected&email={quote(email)}")
     except Exception:
         return RedirectResponse(f"{base_url}/?google_drive=error")
 
