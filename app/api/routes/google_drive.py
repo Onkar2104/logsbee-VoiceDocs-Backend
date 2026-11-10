@@ -209,18 +209,17 @@ def upload_recording(
     filename = file.filename or "browser-recording.webm"
     user_settings = db.query(UserSettings).filter(UserSettings.user_id == GoogleDriveService._user_id(user.id)).first()
     automatic_backup = user_settings.automatic_backup_enabled if user_settings else True
-    try:
-        saved = GoogleDriveService.upload_recording(
-            db=db, user_id=user.id, audio=audio_bytes, filename=filename,
-            mime_type=media_type or "application/octet-stream",
-            duration=duration, language=language, transcript=transcript,
-            document_id=document_id,
-        )
-    except HTTPException:
-        saved = None
-
-    if not automatic_backup:
-        saved = None
+    saved = None
+    if automatic_backup:
+        try:
+            saved = GoogleDriveService.upload_recording(
+                db=db, user_id=user.id, audio=audio_bytes, filename=filename,
+                mime_type=media_type or "application/octet-stream",
+                duration=duration, language=language, transcript=transcript,
+                document_id=document_id,
+            )
+        except HTTPException:
+            saved = None
 
     if saved is None:
         from app.models.google_drive import AudioRecording
