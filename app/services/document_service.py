@@ -206,19 +206,17 @@ class DocumentService:
         ).all()
         audio_backed_up = 0
         for audio in audio_items:
-            try:\n                saved = GoogleDriveService.upload_recording(
-                db=db, user_id=str(audio.user_id), audio=audio.file_data or b"",
-                filename=audio.file_name, mime_type=audio.mime_type,
-                duration=audio.duration_seconds, language=audio.language,
-                transcript=audio.transcript, document_id=document.id,
-            )
-            if saved:
-                audio.drive_file_id = saved["drive_file_id"]
-                audio.file_data = None
-                audio.backup_status = "backed_up"
-                audio.last_backup_at = datetime.now(timezone.utc)
-                db.commit()
-                audio_backed_up += 1
+            try:
+                saved = GoogleDriveService.upload_recording(
+                    db=db, user_id=str(audio.user_id), audio=audio.file_data or b"",
+                    filename=audio.file_name, mime_type=audio.mime_type,
+                    duration=audio.duration_seconds, language=audio.language,
+                    transcript=audio.transcript, document_id=document.id, recording_id=audio.id,
+                )
+                if saved:
+                    audio_backed_up += 1
+            except HTTPException:
+                db.rollback()
         return {"backed_up": True, "backup_status": document.backup_status, "audio_backed_up": audio_backed_up}
 
     @classmethod
