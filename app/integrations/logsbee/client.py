@@ -93,3 +93,35 @@ class LogsbeeClient:
 
 
 logsbee_client = LogsbeeClient()
+
+
+    def request_two_factor_otp(self, access_token: str) -> dict:
+        return self._two_factor_request(access_token, "POST", "/api/users/me/two-factor/email", {})
+
+    def verify_two_factor_otp(self, access_token: str, otp: str) -> dict:
+        return self._two_factor_request(access_token, "POST", "/api/users/me/two-factor/email", {"otp": otp})
+
+    def disable_two_factor(self, access_token: str) -> dict:
+        return self._two_factor_request(access_token, "DELETE", "/api/users/me/two-factor")
+
+    def _two_factor_request(self, access_token: str, method: str, path: str, payload: dict | None = None) -> dict:
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
+                response = client.request(
+                    method, path,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    json=payload,
+                )
+            if response.status_code in (401, 403):
+                raise HTTPException(status_code=response.status_code, detail="Logsbee rejected the two-factor verification request.")
+            if response.is_error:
+                try:
+                    detail = response.json().get("detail", "Logsbee could not complete two-factor verification.")
+                except ValueError:
+                    detail = "Logsbee could not complete two-factor verification."
+                raise HTTPException(status_code=response.status_code if response.status_code < 500 else 502, detail=detail)
+            return response.json()
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=503, detail="Logsbee User Management API timed out.")
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Logsbee User Management API is unavailable.")
