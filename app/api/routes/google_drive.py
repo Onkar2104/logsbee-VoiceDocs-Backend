@@ -1,7 +1,7 @@
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,13 @@ from app.schemas.logsbee import LogsbeeUserContext
 from app.services.google_drive_service import GoogleDriveService
 
 router = APIRouter(tags=["Google Drive"])
+
+MAX_RECORDING_SIZE = 25 * 1024 * 1024
+ALLOWED_RECORDING_TYPES = {
+    "audio/webm", "audio/ogg", "audio/wav", "audio/x-wav",
+    "audio/mpeg", "audio/mp4", "audio/aac", "audio/flac",
+    "video/webm", "application/octet-stream",
+}
 
 
 @router.get("/google-drive/connect")
@@ -109,3 +116,39 @@ def delete_recording(
 ):
     GoogleDriveService.delete(db, user.id, recording_id)
     return {"message": "Recording deleted from Google Drive and VoiceDocs."}
+
+
+
+@router.post("/recordings/upload", status_code=201)
+def upload_recording(
+    file: UploadFile = File(...),
+    duration: float | None = Query(default=None, ge=0),
+    language: str | None = Query(default=None, min_length=2, max_length=10),
+    transcript: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    media_type = (file.content_type or "").split(";")[0].strip().lower()
+    if media_type and media_type not in ALLOWED_RECORDING_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported audio format.")
+
+    audio_bytes = file.file.read(MAX_RECORDING_SIZE + 1)
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="The recording file is empty.")
+    if len(audio_bytes) > MAX_RECORDING_SIZE:
+        raise HTTPException(status_code=413, detail="Recording files must be 25 MB or smaller.")
+
+    saved = GoogleDriveService.upload_recording(
+        db=db,
+        user_id=user.id,
+        audio=audio_bytes,
+        filename=file.filename or "browser-recording.webm",
+        mime_type=media_type or "application/octet-stream",
+        duration=duration,
+        language=language,
+        transcript=transcript,
+    )
+    if saved is None:
+        raise HTTPException(status_code=409, detail="Connect Google Drive before saving a recording.")
+
+    return {"saved": True, "recording": saved}
