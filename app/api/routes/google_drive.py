@@ -87,6 +87,8 @@ def list_recordings(
             "duration_seconds": item.duration_seconds,
             "language": item.language,
             "transcript": item.transcript,
+            "backup_status": item.backup_status,
+            "document_id": str(item.document_id) if item.document_id else None,
             "created_at": item.created_at.isoformat(),
         } for item in result["items"]],
         "pagination": result["pagination"],
