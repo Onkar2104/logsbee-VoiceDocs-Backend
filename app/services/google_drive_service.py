@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.google_drive import AudioRecording, GoogleDriveConnection, GoogleOAuthState
+from app.services.docx_converter import html_to_docx, docx_to_html
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -248,13 +249,13 @@ class GoogleDriveService:
         token = GoogleDriveService._access_token(db, connection)
         folder_id = GoogleDriveService._documents_folder(db, connection, token)
         safe_title = (title or "Untitled document").replace("/", "_").replace(chr(92), "_").strip()[:220]
-        filename = f"{safe_title or 'Untitled document'}.html"
-        html = (content or "").encode("utf-8")
+        filename = f"{safe_title or 'Untitled document'}.docx"
+        docx_content = html_to_docx(content)
         boundary = "voicedocs_" + secrets.token_hex(16)
         marker = boundary.encode("ascii")
         metadata = json.dumps({
             "name": filename,
-            "mimeType": "text/html",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "parents": [folder_id],
         }).encode("utf-8")
         body = (
@@ -262,8 +263,8 @@ class GoogleDriveService:
             b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
             + metadata + b"\r\n"
             b"--" + marker + b"\r\n"
-            b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
-            + html + b"\r\n"
+            b"Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n"
+            + docx_content + b"\r\n"
             b"--" + marker + b"--"
         )
         response = GoogleDriveService._drive_request(
@@ -283,14 +284,14 @@ class GoogleDriveService:
         safe_title = (title or "Untitled document").replace("/", "_").replace(chr(92), "_").strip()[:220]
         boundary = "voicedocs_" + secrets.token_hex(16)
         marker = boundary.encode("ascii")
-        metadata = json.dumps({"name": f"{safe_title or 'Untitled document'}.html", "mimeType": "text/html"}).encode("utf-8")
+        metadata = json.dumps({"name": f"{safe_title or 'Untitled document'}.docx", "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}).encode("utf-8")
         body = (
             b"--" + marker + b"\r\n"
             b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
             + metadata + b"\r\n"
             b"--" + marker + b"\r\n"
-            b"Content-Type: text/html; charset=UTF-8\r\n\r\n"
-            + (content or "").encode("utf-8") + b"\r\n"
+            b"Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n"
+            + html_to_docx(content) + b"\r\n"
             b"--" + marker + b"--"
         )
         response = GoogleDriveService._drive_request(
@@ -310,7 +311,7 @@ class GoogleDriveService:
         response = GoogleDriveService._drive_request(
             "GET", f"{DRIVE_API}/files/{drive_file_id}", token, params={"alt": "media"}
         )
-        return response.content.decode("utf-8")
+        return docx_to_html(response.content)
 
     @staticmethod
     def recordings(db: Session, user_id: str, page: int = 1, page_size: int = 10) -> dict:
