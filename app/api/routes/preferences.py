@@ -33,12 +33,11 @@ def _get_or_create(db: Session, user_id):
     return settings_row
 
 
-def _serialize(row: UserSettings, user: LogsbeeUserContext):
+def _serialize(row: UserSettings):
     return {
         "default_language": row.default_language,
         "transcription_language": row.default_language,
         "automatic_backup_enabled": row.automatic_backup_enabled,
-        "two_factor_enabled": bool(user.is_two_factor_authenticated),
         "transcription_provider": settings.transcription_provider.strip().lower(),
     }
 
@@ -46,7 +45,7 @@ def _serialize(row: UserSettings, user: LogsbeeUserContext):
 @router.get("/")
 def get_preferences(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     row = _get_or_create(db, user.id)
-    return _serialize(row, user)
+    return _serialize(row)
 
 
 @router.put("/")
