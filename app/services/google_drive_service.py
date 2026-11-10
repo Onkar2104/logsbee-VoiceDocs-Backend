@@ -195,29 +195,28 @@ class GoogleDriveService:
         token = GoogleDriveService._access_token(db, connection)
         safe_name = (filename or "recording.webm").replace("/", "_").replace(chr(92), "_")[:240]
         boundary = "voicedocs_" + secrets.token_hex(16)
-        metadata = json.dumps({
-            "name": safe_name, "parents": [connection.recordings_folder_id]
-        }).encode("utf-8")
+        metadata = json.dumps({"name": safe_name, "parents": [connection.recordings_folder_id]}).encode("utf-8")
         marker = boundary.encode("ascii")
         body = (
             b"--" + marker + b"\r\n"
-            b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-            + metadata + b"\r\n"
+            b"Content-Type: application/json; charset=UTF-8\r\n\r\n" + metadata + b"\r\n"
             b"--" + marker + b"\r\n"
-            + f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8")
-            + audio + b"\r\n"
+            + f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8") + audio + b"\r\n"
             b"--" + marker + b"--"
         )
         response = GoogleDriveService._drive_request(
             "POST", f"{UPLOAD_API}/files", token,
             params={"uploadType": "multipart", "fields": "id,name,mimeType,size"},
-            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
-            content=body,
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"}, content=body,
         )
         remote = response.json()
         item = AudioRecording(
             user_id=GoogleDriveService._user_id(user_id),
+            document_id=document_id,
             drive_file_id=remote["id"],
+            file_data=None,
+            backup_status="backed_up",
+            last_backup_at=datetime.now(timezone.utc),
             file_name=remote.get("name", safe_name),
             mime_type=remote.get("mimeType", mime_type),
             file_size=int(remote.get("size", len(audio))),
@@ -226,7 +225,8 @@ class GoogleDriveService:
         db.add(item)
         db.commit()
         db.refresh(item)
-        return {"id": str(item.id), "file_name": item.file_name, "drive_file_id": item.drive_file_id, "backup_status": item.backup_status}
+        return {"id": str(item.id), "file_name": item.file_name,
+                "drive_file_id": item.drive_file_id, "backup_status": item.backup_status}
 
     @staticmethod
     def _documents_folder(db: Session, connection: GoogleDriveConnection, token: str) -> str:
@@ -354,13 +354,14 @@ class GoogleDriveService:
         ))
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
+        if item.file_data is not None:
+            return item.file_data, item.file_name, item.mime_type
         connection = GoogleDriveService.connection(db, user_id)
-        if not connection:
-            raise HTTPException(status_code=409, detail="Reconnect Google Drive to access this recording.")
+        if not connection or not item.drive_file_id:
+            raise HTTPException(status_code=409, detail="Recording is not backed up and its database copy is unavailable.")
         token = GoogleDriveService._access_token(db, connection)
         response = GoogleDriveService._drive_request(
-            "GET", f"{DRIVE_API}/files/{item.drive_file_id}", token,
-            params={"alt": "media"},
+            "GET", f"{DRIVE_API}/files/{item.drive_file_id}", token, params={"alt": "media"}
         )
         return response.content, item.file_name, item.mime_type
 
