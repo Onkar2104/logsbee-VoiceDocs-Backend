@@ -350,6 +350,28 @@ class GoogleDriveService:
         }
 
     @staticmethod
+    def backup_recording(db: Session, user_id: str, recording_id: uuid.UUID) -> dict:
+        item = db.scalar(select(AudioRecording).where(
+            AudioRecording.id == recording_id,
+            AudioRecording.user_id == GoogleDriveService._user_id(user_id),
+        ))
+        if not item:
+            raise HTTPException(status_code=404, detail="Recording not found.")
+        if item.backup_status == "backed_up" and item.drive_file_id:
+            return {"backup_status": "backed_up", "message": "Recording is already backed up."}
+        if item.file_data is None:
+            raise HTTPException(status_code=409, detail="The database copy of this recording is unavailable.")
+        saved = GoogleDriveService.upload_recording(
+            db=db, user_id=user_id, audio=item.file_data, filename=item.file_name,
+            mime_type=item.mime_type, duration=item.duration_seconds,
+            language=item.language, transcript=item.transcript,
+            document_id=item.document_id, recording_id=item.id,
+        )
+        if not saved:
+            raise HTTPException(status_code=409, detail="Connect Google Drive to back up this recording.")
+        return {"backup_status": "backed_up", "message": "Recording backed up to Google Drive."}
+
+    @staticmethod
     def download(db: Session, user_id: str, recording_id: uuid.UUID) -> tuple[bytes, str, str]:
         item = db.scalar(select(AudioRecording).where(
             AudioRecording.id == recording_id,
