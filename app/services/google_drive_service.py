@@ -187,7 +187,7 @@ class GoogleDriveService:
     def upload_recording(
         db: Session, user_id: str, audio: bytes, filename: str, mime_type: str,
         duration: float | None = None, language: str | None = None,
-        transcript: str | None = None,
+        transcript: str | None = None, document_id: uuid.UUID | None = None,
     ) -> dict | None:
         connection = GoogleDriveService.connection(db, user_id)
         if not connection:
