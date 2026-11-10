@@ -7,7 +7,6 @@ from app.api.dependencies.current_user import get_current_user
 from app.db.session import get_db
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.transcription_service import TranscriptionService
-from app.services.google_drive_service import GoogleDriveService
 
 
 logger = logging.getLogger(__name__)
@@ -44,17 +43,4 @@ def transcribe_audio(
         logger.exception("Audio transcription failed")
         raise HTTPException(status_code=422, detail="Could not transcribe this audio. Check the selected provider setup and try a clearer recording.") from exc
 
-    result["drive_saved"] = False
-    result["drive_recording"] = None
-    try:
-        saved = GoogleDriveService.upload_recording(
-            db=db, user_id=user.id, audio=audio_bytes, filename=filename,
-            mime_type=media_type or "application/octet-stream",
-            duration=result.get("duration"), language=result.get("language"),
-            transcript=result.get("text"),
-        )
-        result["drive_saved"] = saved is not None
-        result["drive_recording"] = saved
-    except Exception:
-        logger.exception("Audio was transcribed but Google Drive backup failed")
     return result
