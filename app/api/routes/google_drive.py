@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.current_user import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
+from app.models.document import Document
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.google_drive_service import GoogleDriveService
 
@@ -148,6 +149,11 @@ def upload_recording(
         raise HTTPException(status_code=400, detail="The recording file is empty.")
     if len(audio_bytes) > MAX_RECORDING_SIZE:
         raise HTTPException(status_code=413, detail="Recording files must be 25 MB or smaller.")
+
+    if document_id:
+        linked_document = db.get(Document, document_id)
+        if not linked_document or str(linked_document.owner_user_id) != user.id:
+            raise HTTPException(status_code=403, detail="Audio can only be attached to a document you own.")
 
     filename = file.filename or "browser-recording.webm"
     try:
