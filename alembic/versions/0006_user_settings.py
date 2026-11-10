@@ -28,7 +28,7 @@ def upgrade() -> None:
         INSERT INTO user_settings
             (id, user_id, two_factor_enabled, default_language,
              automatic_backup_enabled, created_at, updated_at)
-        SELECT gen_random_uuid(), user_id, FALSE, transcription_language,
+        SELECT md5(random()::text || clock_timestamp()::text)::uuid, user_id, FALSE, transcription_language,
                TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         FROM user_preferences
         ON CONFLICT (user_id) DO NOTHING
