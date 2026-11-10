@@ -42,22 +42,26 @@ class DocumentService:
     @classmethod
     def create(cls, db: Session, data: DocumentCreate, user):
         account_id = cls._require_account(user)
+        document_id = uuid.uuid4()
+        title = data.title.strip()
+        # Upload the actual HTML content first. No database document is created
+        # unless Google Drive confirms that the file exists.
+        remote = GoogleDriveService.upload_document(
+            db, user.id, str(document_id), title, data.content
+        )
         document = Document(
-            title=data.title.strip(),
+            id=document_id,
+            title=title,
             content="",
             owner_user_id=uuid.UUID(user.id),
             account_id=account_id,
+            drive_file_id=remote["id"],
+            drive_web_view_link=remote.get("webViewLink"),
+            backup_status="backed_up",
+            last_backup_at=datetime.now(timezone.utc),
         )
-        db.add(document)
-        db.flush()
         try:
-            remote = GoogleDriveService.upload_document(
-                db, user.id, str(document.id), document.title, data.content
-            )
-            document.drive_file_id = remote["id"]
-            document.drive_web_view_link = remote.get("webViewLink")
-            document.backup_status = "backed_up"
-            document.last_backup_at = datetime.now(timezone.utc)
+            db.add(document)
             db.commit()
             db.refresh(document)
             return cls._with_content(db, document)
