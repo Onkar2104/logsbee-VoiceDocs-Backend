@@ -377,7 +377,7 @@ class GoogleDriveService:
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
         connection = GoogleDriveService.connection(db, user_id)
-        if connection:
+        if connection and item.drive_file_id:
             token = GoogleDriveService._access_token(db, connection)
             GoogleDriveService._drive_request(
                 "DELETE", f"{DRIVE_API}/files/{item.drive_file_id}", token
