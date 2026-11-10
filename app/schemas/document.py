@@ -26,6 +26,9 @@ class DocumentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     updated_by: uuid.UUID | None = None
+    backup_status: str = "not_backed_up"
+    drive_web_view_link: str | None = None
+    audio_backup_status: str = "backed_up"
     shared_by_user_id: uuid.UUID | None = None
     shared_by_name: str | None = None
 

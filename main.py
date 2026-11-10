@@ -10,6 +10,7 @@ from app.api.routes.preferences import router as preferences_router
 from app.models.document import Document, DocumentShare
 from app.models.google_drive import AudioRecording, GoogleDriveConnection, GoogleOAuthState
 from app.models.user_preferences import UserPreferences
+from app.models.user_settings import UserSettings
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0")

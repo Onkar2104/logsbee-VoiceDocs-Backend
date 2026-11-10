@@ -92,4 +92,5 @@ class LogsbeeClient:
             raise HTTPException(status_code=503, detail="Logsbee User Management API is unavailable.")
 
 
+
 logsbee_client = LogsbeeClient()

@@ -187,7 +187,8 @@ class GoogleDriveService:
     def upload_recording(
         db: Session, user_id: str, audio: bytes, filename: str, mime_type: str,
         duration: float | None = None, language: str | None = None,
-        transcript: str | None = None,
+        transcript: str | None = None, document_id: uuid.UUID | None = None,
+        recording_id: uuid.UUID | None = None,
     ) -> dict | None:
         connection = GoogleDriveService.connection(db, user_id)
         if not connection:
@@ -195,38 +196,40 @@ class GoogleDriveService:
         token = GoogleDriveService._access_token(db, connection)
         safe_name = (filename or "recording.webm").replace("/", "_").replace(chr(92), "_")[:240]
         boundary = "voicedocs_" + secrets.token_hex(16)
-        metadata = json.dumps({
-            "name": safe_name, "parents": [connection.recordings_folder_id]
-        }).encode("utf-8")
+        metadata = json.dumps({"name": safe_name, "parents": [connection.recordings_folder_id]}).encode("utf-8")
         marker = boundary.encode("ascii")
         body = (
             b"--" + marker + b"\r\n"
-            b"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-            + metadata + b"\r\n"
+            b"Content-Type: application/json; charset=UTF-8\r\n\r\n" + metadata + b"\r\n"
             b"--" + marker + b"\r\n"
-            + f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8")
-            + audio + b"\r\n"
+            + f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8") + audio + b"\r\n"
             b"--" + marker + b"--"
         )
         response = GoogleDriveService._drive_request(
             "POST", f"{UPLOAD_API}/files", token,
             params={"uploadType": "multipart", "fields": "id,name,mimeType,size"},
-            headers={"Content-Type": f"multipart/related; boundary={boundary}"},
-            content=body,
+            headers={"Content-Type": f"multipart/related; boundary={boundary}"}, content=body,
         )
         remote = response.json()
-        item = AudioRecording(
-            user_id=GoogleDriveService._user_id(user_id),
-            drive_file_id=remote["id"],
-            file_name=remote.get("name", safe_name),
-            mime_type=remote.get("mimeType", mime_type),
-            file_size=int(remote.get("size", len(audio))),
-            duration_seconds=duration, language=language, transcript=transcript,
-        )
-        db.add(item)
+        item = db.get(AudioRecording, recording_id) if recording_id else None
+        if item is None:
+            item = AudioRecording(
+                user_id=GoogleDriveService._user_id(user_id),
+                document_id=document_id,
+                file_name=remote.get("name", safe_name),
+                mime_type=remote.get("mimeType", mime_type),
+                file_size=int(remote.get("size", len(audio))),
+                duration_seconds=duration, language=language, transcript=transcript,
+            )
+            db.add(item)
+        item.drive_file_id = remote["id"]
+        item.file_data = None
+        item.backup_status = "backed_up"
+        item.last_backup_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(item)
-        return {"id": str(item.id), "file_name": item.file_name}
+        return {"id": str(item.id), "file_name": item.file_name,
+                "drive_file_id": item.drive_file_id, "backup_status": item.backup_status}
 
     @staticmethod
     def _documents_folder(db: Session, connection: GoogleDriveConnection, token: str) -> str:
@@ -347,6 +350,28 @@ class GoogleDriveService:
         }
 
     @staticmethod
+    def backup_recording(db: Session, user_id: str, recording_id: uuid.UUID) -> dict:
+        item = db.scalar(select(AudioRecording).where(
+            AudioRecording.id == recording_id,
+            AudioRecording.user_id == GoogleDriveService._user_id(user_id),
+        ))
+        if not item:
+            raise HTTPException(status_code=404, detail="Recording not found.")
+        if item.backup_status == "backed_up" and item.drive_file_id:
+            return {"backup_status": "backed_up", "message": "Recording is already backed up."}
+        if item.file_data is None:
+            raise HTTPException(status_code=409, detail="The database copy of this recording is unavailable.")
+        saved = GoogleDriveService.upload_recording(
+            db=db, user_id=user_id, audio=item.file_data, filename=item.file_name,
+            mime_type=item.mime_type, duration=item.duration_seconds,
+            language=item.language, transcript=item.transcript,
+            document_id=item.document_id, recording_id=item.id,
+        )
+        if not saved:
+            raise HTTPException(status_code=409, detail="Connect Google Drive to back up this recording.")
+        return {"backup_status": "backed_up", "message": "Recording backed up to Google Drive."}
+
+    @staticmethod
     def download(db: Session, user_id: str, recording_id: uuid.UUID) -> tuple[bytes, str, str]:
         item = db.scalar(select(AudioRecording).where(
             AudioRecording.id == recording_id,
@@ -354,13 +379,14 @@ class GoogleDriveService:
         ))
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
+        if item.file_data is not None:
+            return item.file_data, item.file_name, item.mime_type
         connection = GoogleDriveService.connection(db, user_id)
-        if not connection:
-            raise HTTPException(status_code=409, detail="Reconnect Google Drive to access this recording.")
+        if not connection or not item.drive_file_id:
+            raise HTTPException(status_code=409, detail="Recording is not backed up and its database copy is unavailable.")
         token = GoogleDriveService._access_token(db, connection)
         response = GoogleDriveService._drive_request(
-            "GET", f"{DRIVE_API}/files/{item.drive_file_id}", token,
-            params={"alt": "media"},
+            "GET", f"{DRIVE_API}/files/{item.drive_file_id}", token, params={"alt": "media"}
         )
         return response.content, item.file_name, item.mime_type
 
@@ -373,7 +399,7 @@ class GoogleDriveService:
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
         connection = GoogleDriveService.connection(db, user_id)
-        if connection:
+        if connection and item.drive_file_id:
             token = GoogleDriveService._access_token(db, connection)
             GoogleDriveService._drive_request(
                 "DELETE", f"{DRIVE_API}/files/{item.drive_file_id}", token

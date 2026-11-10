@@ -6,12 +6,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentShare
+from app.models.google_drive import AudioRecording
+from app.models.user_settings import UserSettings
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentCreate, DocumentUpdate
 from app.services.google_drive_service import GoogleDriveService
 
 
 class DocumentService:
+    @staticmethod
+    def _automatic_backup_enabled(db: Session, user_id: uuid.UUID) -> bool:
+        row = db.query(UserSettings).filter(UserSettings.user_id == user_id).first()
+        return row.automatic_backup_enabled if row else True
+
     @staticmethod
     def _is_admin(user) -> bool:
         return bool(user.role and user.role.name.strip().lower() == "admin")
@@ -44,21 +51,22 @@ class DocumentService:
         account_id = cls._require_account(user)
         document_id = uuid.uuid4()
         title = data.title.strip()
-        # Upload the actual HTML content first. No database document is created
-        # unless Google Drive confirms that the file exists.
-        remote = GoogleDriveService.upload_document(
-            db, user.id, str(document_id), title, data.content
-        )
+        remote = None
+        if cls._automatic_backup_enabled(db, uuid.UUID(user.id)):
+            try:
+                remote = GoogleDriveService.upload_document(db, user.id, str(document_id), title, data.content)
+            except HTTPException:
+                remote = None
         document = Document(
             id=document_id,
             title=title,
-            content="",
+            content="" if remote else data.content,
             owner_user_id=uuid.UUID(user.id),
             account_id=account_id,
-            drive_file_id=remote["id"],
-            drive_web_view_link=remote.get("webViewLink"),
-            backup_status="backed_up",
-            last_backup_at=datetime.now(timezone.utc),
+            drive_file_id=remote.get("id") if remote else None,
+            drive_web_view_link=remote.get("webViewLink") if remote else None,
+            backup_status="backed_up" if remote else "not_backed_up",
+            last_backup_at=datetime.now(timezone.utc) if remote else None,
         )
         try:
             db.add(document)
@@ -109,7 +117,10 @@ class DocumentService:
             item = {
                 "id": document.id,
                 "title": document.title,
-                "content": cls._with_content(db, document).content,
+                "content": document.content,
+                "backup_status": document.backup_status,
+                "drive_web_view_link": document.drive_web_view_link,
+                "audio_backup_status": "not_backed_up" if db.query(AudioRecording.id).filter(AudioRecording.document_id == document.id, AudioRecording.backup_status != "backed_up").count() else "backed_up",
                 "owner_user_id": document.owner_user_id,
                 "account_id": document.account_id,
                 "created_at": document.created_at,
@@ -167,10 +178,67 @@ class DocumentService:
     @classmethod
     def _with_content(cls, db: Session, document: Document) -> Document:
         if document.drive_file_id:
-            document.content = GoogleDriveService.download_document(
-                db, str(document.owner_user_id), document.drive_file_id
-            )
+            try:
+                document.content = GoogleDriveService.download_document(
+                    db, str(document.owner_user_id), document.drive_file_id
+                )
+            except HTTPException:
+                if not document.content:
+                    raise
+        pending_audio = db.query(AudioRecording.id).filter(
+            AudioRecording.document_id == document.id,
+            AudioRecording.backup_status != "backed_up",
+        ).count()
+        document.audio_backup_status = "not_backed_up" if pending_audio else "backed_up"
         return document
+
+    @classmethod
+    def backup(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_visible_document(db, document_id, user)
+        if not cls._can_manage(document, user):
+            raise HTTPException(status_code=403, detail="Only the owner or Account Admin can back up this document.")
+        if document.backup_status != "backed_up":
+            try:
+                if document.drive_file_id:
+                    remote = GoogleDriveService.update_drive_document(
+                        db, str(document.owner_user_id), document.drive_file_id, document.title, document.content
+                    )
+                else:
+                    remote = GoogleDriveService.upload_document(
+                        db, str(document.owner_user_id), str(document.id), document.title, document.content
+                    )
+            except HTTPException:
+                raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
+            if not remote:
+                raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
+            document.drive_file_id = remote["id"]
+            document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+            document.content = ""
+            document.backup_status = "backed_up"
+            document.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
+        audio_items = db.query(AudioRecording).filter(
+            AudioRecording.document_id == document.id,
+            AudioRecording.backup_status != "backed_up",
+        ).all()
+        audio_backed_up = 0
+        for audio in audio_items:
+            try:
+                saved = GoogleDriveService.upload_recording(
+                    db=db, user_id=str(audio.user_id), audio=audio.file_data or b"",
+                    filename=audio.file_name, mime_type=audio.mime_type,
+                    duration=audio.duration_seconds, language=audio.language,
+                    transcript=audio.transcript, document_id=document.id, recording_id=audio.id,
+                )
+                if saved:
+                    audio_backed_up += 1
+            except HTTPException:
+                db.rollback()
+        audio_pending = db.query(AudioRecording).filter(
+            AudioRecording.document_id == document.id,
+            AudioRecording.backup_status != "backed_up",
+        ).count()
+        return {"backed_up": audio_pending == 0, "backup_status": document.backup_status, "audio_backup_status": "not_backed_up" if audio_pending else "backed_up", "audio_backed_up": audio_backed_up, "audio_pending": audio_pending}
 
     @classmethod
     def get(cls, db: Session, document_id: uuid.UUID, user):
@@ -189,21 +257,29 @@ class DocumentService:
         content = changes.get("content")
         if content is None:
             content = cls._with_content(db, document).content
-        if document.drive_file_id:
-            remote = GoogleDriveService.update_drive_document(
-                db, str(document.owner_user_id), document.drive_file_id, title, content
-            )
-        else:
-            # Backward compatibility: migrate an older database-only document on its next save.
-            remote = GoogleDriveService.upload_document(
-                db, str(document.owner_user_id), str(document.id), title, content
-            )
-            document.drive_file_id = remote["id"]
+        remote = None
+        if cls._automatic_backup_enabled(db, document.owner_user_id):
+            try:
+                if document.drive_file_id:
+                    remote = GoogleDriveService.update_drive_document(
+                        db, str(document.owner_user_id), document.drive_file_id, title, content
+                    )
+                else:
+                    remote = GoogleDriveService.upload_document(
+                        db, str(document.owner_user_id), str(document.id), title, content
+                    )
+            except HTTPException:
+                remote = None
         document.title = title
-        document.content = ""
-        document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
-        document.backup_status = "backed_up"
-        document.last_backup_at = datetime.now(timezone.utc)
+        if remote:
+            document.drive_file_id = remote["id"]
+            document.content = ""
+            document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+            document.backup_status = "backed_up"
+            document.last_backup_at = datetime.now(timezone.utc)
+        else:
+            document.content = content
+            document.backup_status = "not_backed_up"
         document.updated_by = uuid.UUID(user.id)
         document.updated_at = datetime.now(timezone.utc)
         DocumentRepository.commit(db)
