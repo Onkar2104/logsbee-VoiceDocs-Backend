@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.models.document_format_version import DocumentFormatVersion
+from app.models.user_settings import UserSettings
 from app.services.document_formatting_service import DocumentFormattingService
+from app.services.google_drive_service import GoogleDriveService
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -54,6 +56,19 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     document.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(version)
+    preferences = db.query(UserSettings).filter(UserSettings.user_id == document.owner_user_id).first()
+    if preferences is None or preferences.automatic_backup_enabled:
+        try:
+            remote = GoogleDriveService.upload_formatted_version(db, str(document.owner_user_id), str(document.id), version.version_number, document.title, version.content_html)
+            version.drive_file_id = remote.get("id")
+            version.drive_web_view_link = remote.get("webViewLink")
+            version.backup_status = "backed_up"
+            version.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(version)
+        except HTTPException:
+            db.rollback()
+            version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version.id).first()
     return {
         "id": version.id,
         "version_number": version.version_number,
@@ -63,6 +78,27 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
         "created_at": version.created_at,
     }
 
+
+@router.post("/{document_id}/versions/{version_id}/backup")
+def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    document = DocumentService._get_visible_document(db, document_id, user)
+    _require_format_edit_access(db, document, user)
+    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id).first()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Formatted version not found.")
+    try:
+        if version.drive_file_id:
+            remote = GoogleDriveService.update_drive_document(db, str(document.owner_user_id), version.drive_file_id, f"{document.title} - Formatted v{version.version_number}", version.content_html)
+        else:
+            remote = GoogleDriveService.upload_formatted_version(db, str(document.owner_user_id), str(document.id), version.version_number, document.title, version.content_html)
+    except HTTPException as exc:
+        raise HTTPException(status_code=502, detail="Google Drive is unavailable. The formatted version remains safely stored in VoiceDocs.") from exc
+    version.drive_file_id = remote.get("id")
+    version.drive_web_view_link = remote.get("webViewLink") or version.drive_web_view_link
+    version.backup_status = "backed_up"
+    version.last_backup_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"backup_status": version.backup_status, "drive_web_view_link": version.drive_web_view_link}
 
 @router.get("/{document_id}/versions")
 def list_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
