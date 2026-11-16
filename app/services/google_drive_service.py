@@ -278,6 +278,18 @@ class GoogleDriveService:
         )
         return response.json()
 
+
+    @staticmethod
+    def upload_formatted_version(db: Session, owner_user_id: str, document_id: str, version_number: int, title: str, content_html: str) -> dict:
+        """Create a separate DOCX file for one formatted document version."""
+        return GoogleDriveService.upload_document(
+            db,
+            owner_user_id,
+            f"{document_id}-formatted-v{version_number}",
+            f"{title} - Formatted v{version_number}",
+            content_html,
+        )
+
     @staticmethod
     def update_drive_document(db: Session, owner_user_id: str, drive_file_id: str, title: str, content: str) -> dict:
         connection = GoogleDriveService.connection(db, owner_user_id)
