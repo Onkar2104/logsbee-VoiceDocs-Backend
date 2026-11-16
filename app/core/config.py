@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     logsbee_user_api_timeout_seconds: float
     cors_origins: str
 
+    # Server-side document formatting (Gemini free-tier model only)
+    gemini_api_key: str = ""
+    document_ai_model: str = "gemini-3.8-flash"
+    document_ai_timeout_seconds: float = 90.0
+
     # Google OAuth
     google_client_id: str
     google_client_secret: str
