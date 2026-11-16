@@ -15,7 +15,6 @@ class Settings(BaseSettings):
 
     # Server-side document formatting (Gemini free-tier model only)
     gemini_api_key: str = ""
-    document_ai_model: str = "gemini-3.8-flash"
     document_ai_timeout_seconds: float = 90.0
 
     # Google OAuth
