@@ -223,7 +223,6 @@ class GoogleDriveService:
             )
             db.add(item)
         item.drive_file_id = remote["id"]
-        item.file_data = None
         item.backup_status = "backed_up"
         item.last_backup_at = datetime.now(timezone.utc)
         db.commit()
