@@ -79,6 +79,42 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     }
 
 
+@router.put("/{document_id}/versions/{version_id}")
+def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    document = DocumentService._get_visible_document(db, document_id, user)
+    _require_format_edit_access(db, document, user)
+    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id).first()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Formatted version not found.")
+    try:
+        structured = DocumentFormattingService._validate_result(payload.get("content_json"))
+    except (AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail="A valid formatted document is required.")
+    html = DocumentFormattingService._to_html(structured)
+    version.content_json = structured
+    version.content_html = html
+    version.updated_at = datetime.now(timezone.utc)
+    version.backup_status = "not_backed_up"
+    preferences = db.query(UserSettings).filter(UserSettings.user_id == document.owner_user_id).first()
+    if preferences is None or preferences.automatic_backup_enabled:
+        try:
+            if version.drive_file_id:
+                remote = GoogleDriveService.update_drive_document(db, str(document.owner_user_id), version.drive_file_id, f"{document.title} - Formatted v{version.version_number}", html)
+            else:
+                remote = GoogleDriveService.upload_formatted_version(db, str(document.owner_user_id), str(document.id), version.version_number, document.title, html)
+            version.drive_file_id = remote.get("id")
+            version.drive_web_view_link = remote.get("webViewLink") or version.drive_web_view_link
+            version.backup_status = "backed_up"
+            version.last_backup_at = datetime.now(timezone.utc)
+        except HTTPException:
+            version.backup_status = "not_backed_up"
+    document.active_format_version_id = version.id
+    document.updated_by = uuid.UUID(user.id)
+    document.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(version)
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
+
 @router.post("/{document_id}/versions/{version_id}/backup")
 def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
