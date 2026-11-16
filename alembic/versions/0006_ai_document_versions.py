@@ -31,7 +31,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["document_id"], ["documents.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("document_id", "version_number", name="uq_document_format_version_number"),
-        sa.UniqueConstraint("drive_file_id"),
     )
     op.create_index("ix_document_format_versions_document_id", "document_format_versions", ["document_id"])
     op.create_index("ix_document_format_versions_drive_file_id", "document_format_versions", ["drive_file_id"], unique=True)
