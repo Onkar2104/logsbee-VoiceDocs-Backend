@@ -184,6 +184,8 @@ class DocumentService:
                 document.content = GoogleDriveService.download_document(
                     db, str(document.owner_user_id), document.drive_file_id
                 )
+                # Backfill legacy Drive-only documents into the database once.
+                db.commit()
             except HTTPException:
                 if not document.content:
                     raise
