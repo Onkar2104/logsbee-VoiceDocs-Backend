@@ -38,6 +38,8 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
     source = DocumentService._with_content(db, document).content
+    if "<" in source and ">" in source:
+        _, source = DocumentFormattingService.sanitize_editor_html(source)
     structured, html = DocumentFormattingService.format_transcript(source)
     latest = db.query(DocumentFormatVersion).filter(
         DocumentFormatVersion.document_id == document.id
