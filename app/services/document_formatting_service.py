@@ -50,6 +50,8 @@ class _SafeHtmlParser(HTMLParser):
             return
         if self.drop_depth or tag not in self.ALLOWED:
             return
+        if tag in {"p", "h1", "h2", "h3", "li", "blockquote"} and self.plain:
+            self.plain.append("\n")
         attributes = dict(attrs)
         extra = ""
         if tag == "a":
@@ -70,6 +72,8 @@ class _SafeHtmlParser(HTMLParser):
             current = self.stack.pop()
             self.output.append(f"</{current}>")
             if current == tag:
+                if current in {"p", "h1", "h2", "h3", "li", "blockquote"}:
+                    self.plain.append("\n")
                 break
 
     def handle_data(self, data):
