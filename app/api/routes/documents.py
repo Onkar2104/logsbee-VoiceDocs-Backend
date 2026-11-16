@@ -79,6 +79,37 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     }
 
 
+@router.post("/{document_id}/versions")
+def create_document_version(document_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    document = DocumentService._get_visible_document(db, document_id, user)
+    _require_format_edit_access(db, document, user)
+    try:
+        html, plain_text = DocumentFormattingService.sanitize_editor_html(payload.get("content_html"))
+    except (AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail="A valid formatted document is required.")
+    latest = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.document_id == document.id).order_by(DocumentFormatVersion.version_number.desc()).first()
+    version = DocumentFormatVersion(document_id=document.id, version_number=(latest.version_number + 1) if latest else 1, content_json={"blocks": [{"type": "paragraph", "text": plain_text}]}, content_html=html, created_by=uuid.UUID(user.id))
+    db.add(version)
+    db.flush()
+    document.active_format_version_id = version.id
+    document.updated_by = uuid.UUID(user.id)
+    document.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(version)
+    preferences = db.query(UserSettings).filter(UserSettings.user_id == document.owner_user_id).first()
+    if preferences is None or preferences.automatic_backup_enabled:
+        try:
+            remote = GoogleDriveService.upload_formatted_version(db, str(document.owner_user_id), str(document.id), version.version_number, document.title, version.content_html)
+            version.drive_file_id = remote.get("id")
+            version.drive_web_view_link = remote.get("webViewLink")
+            version.backup_status = "backed_up"
+            version.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version.id).first()
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at}
+
 @router.put("/{document_id}/versions/{version_id}")
 def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
