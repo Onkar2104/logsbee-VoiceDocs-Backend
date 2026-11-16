@@ -177,7 +177,9 @@ class DocumentService:
 
     @classmethod
     def _with_content(cls, db: Session, document: Document) -> Document:
-        if document.drive_file_id:
+        # Database content is canonical. Fetch from Drive only for legacy records
+        # created before database fallback storage was introduced.
+        if not document.content and document.drive_file_id:
             try:
                 document.content = GoogleDriveService.download_document(
                     db, str(document.owner_user_id), document.drive_file_id
