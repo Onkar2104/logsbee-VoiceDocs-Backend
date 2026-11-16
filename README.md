@@ -61,3 +61,19 @@ CPU inference is supported but may be slow. `INDICCONFORMER_DEVICE=cpu` is the s
 `POST /api/transcriptions/` (requires a Logsbee Bearer access token)
 
 Multipart form data: `file` (required). Query parameters: `language` (optional for Whisper; required as `hi` or `mr` for IndicConformer) and `provider` (`whisper` or `indicconformer`, optional; defaults to `TRANSCRIPTION_PROVIDER`). Audio uploads are limited to 25 MB. Google Drive backup remains best-effort and is unchanged.
+
+
+## AI document formatting
+
+Formatting is manual: the user chooses **Format Document**. The original transcript remains in the `documents.content` column; formatted content is stored separately in `document_format_versions`. The API exposes version listing, loading, replacing, creating a new version, selecting the active version, and retrying its Google Drive backup.
+
+The backend uses the fixed Gemini `gemini-3.8-flash` model through Google's REST API with structured JSON output. The model is intentionally fixed rather than configurable so this feature cannot silently switch to a different model. Google currently lists Gemini 3.8 Flash as free of charge on the Free tier, with usage limits; upgrading the API project to a paid tier changes the applicable billing terms. Free-tier content may be used by Google to improve its products, so avoid sending sensitive or confidential transcripts until an appropriate consent and privacy experience is added. See [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) and [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output).
+
+Set these server-only environment variables on the backend (never in Vite/frontend variables):
+
+```env
+GEMINI_API_KEY=your_google_ai_studio_api_key
+DOCUMENT_AI_TIMEOUT_SECONDS=90
+```
+
+The feature does not run formatting automatically when a document is saved. A formatting request creates a new version. Users can edit and replace the selected version or save the edited content as a new version. Original and formatted DOCX files use separate Google Drive files. VoiceDocs retains database copies when Drive backup succeeds or fails.
