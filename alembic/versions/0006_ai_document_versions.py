@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0006_ai_document_versions"
-down_revision = "0005_user_preferences"
+down_revision = ("0005_user_preferences", "0005_database_backup_fallback")
 branch_labels = None
 depends_on = None
 
