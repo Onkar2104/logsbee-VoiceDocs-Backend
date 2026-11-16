@@ -115,7 +115,10 @@ class DocumentFormattingService:
                 continue
             item = {"type": block["type"], "text": text}
             if item["type"] == "heading":
-                item["level"] = min(3, max(1, int(block.get("level", 2))))
+                try:
+                    item["level"] = min(3, max(1, int(block.get("level", 2))))
+                except (TypeError, ValueError):
+                    item["level"] = 2
             clean.append(item)
         if not clean:
             raise HTTPException(status_code=502, detail="The formatted document was empty. Please try again.")
@@ -125,7 +128,7 @@ class DocumentFormattingService:
     def _to_html(content: dict) -> str:
         parts = []
         for block in content["blocks"]:
-            text = escape(block["text"]).replace("\\n", "<br>")
+            text = escape(block["text"]).replace("\n", "<br>")
             kind = block["type"]
             if kind == "title":
                 parts.append(f"<h1>{text}</h1>")
