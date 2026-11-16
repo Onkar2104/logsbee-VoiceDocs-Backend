@@ -20,5 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: python -m pip install --upgrade pip fastapi pydantic-settings httpx pytest
+      - name: Check Python syntax
+        run: python -m compileall -q app alembic/versions
       - name: Run document formatting tests
         run: pytest -q tests/test_document_formatting_service.py
