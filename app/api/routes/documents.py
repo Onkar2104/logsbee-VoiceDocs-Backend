@@ -87,11 +87,10 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
     try:
-        structured = DocumentFormattingService._validate_result(payload.get("content_json"))
+        html, plain_text = DocumentFormattingService.sanitize_editor_html(payload.get("content_html"))
     except (AttributeError, TypeError):
         raise HTTPException(status_code=422, detail="A valid formatted document is required.")
-    html = DocumentFormattingService._to_html(structured)
-    version.content_json = structured
+    version.content_json = {"blocks": [{"type": "paragraph", "text": plain_text}]}
     version.content_html = html
     version.updated_at = datetime.now(timezone.utc)
     version.backup_status = "not_backed_up"
