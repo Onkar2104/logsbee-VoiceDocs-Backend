@@ -77,3 +77,14 @@ def test_structured_output_rejects_unknown_block_type():
         })
 
     assert error.value.status_code == 502
+
+def test_document_and_format_version_relationships_are_unambiguous():
+    from sqlalchemy.orm import configure_mappers
+
+    from app.models.document import Document
+    from app.models.document_format_version import DocumentFormatVersion
+
+    configure_mappers()
+    assert hasattr(Document, "format_versions")
+    assert hasattr(Document, "active_format_version")
+    assert hasattr(DocumentFormatVersion, "document")
