@@ -151,7 +151,8 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
 @router.post("/{document_id}/versions/{version_id}/backup")
 def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
-    _require_format_edit_access(db, document, user)
+    if not DocumentService._can_manage(document, user):
+        raise HTTPException(status_code=403, detail="Only the document owner or Account Admin can back up this formatted version.")
     version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
