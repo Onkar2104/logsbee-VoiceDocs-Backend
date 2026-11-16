@@ -1,7 +1,7 @@
 """Add versioned formatted document storage.
 
 Revision ID: 0006_ai_document_versions
-Revises: 0005_user_preferences
+Revises: 0005_user_preferences, 0005_database_backup_fallback
 """
 from alembic import op
 import sqlalchemy as sa
