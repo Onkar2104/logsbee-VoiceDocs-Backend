@@ -36,4 +36,4 @@ class DocumentFormatVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
-    document: Mapped["Document"] = relationship(back_populates="format_versions")
+    document: Mapped["Document"] = relationship(back_populates="format_versions", foreign_keys=[document_id])
