@@ -1,5 +1,6 @@
 import json
 from html import escape
+from html.parser import HTMLParser
 
 import httpx
 from fastapi import HTTPException
@@ -28,6 +29,71 @@ OUTPUT_SCHEMA = {
     },
     "required": ["blocks"],
 }
+
+
+
+class _SafeHtmlParser(HTMLParser):
+    ALLOWED = {"p", "h1", "h2", "h3", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "br", "a"}
+    VOID = {"br"}
+    DROP_CONTENT = {"script", "style", "iframe", "object", "svg", "math"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.output = []
+        self.stack = []
+        self.drop_depth = 0
+        self.plain = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.DROP_CONTENT:
+            self.drop_depth += 1
+            return
+        if self.drop_depth or tag not in self.ALLOWED:
+            return
+        attributes = dict(attrs)
+        extra = ""
+        if tag == "a":
+            href = (attributes.get("href") or "").strip()
+            if href.startswith(("https://", "http://", "mailto:")):
+                extra = f' href="{escape(href, quote=True)}" target="_blank" rel="noopener noreferrer nofollow"'
+        self.output.append(f"<{tag}{extra}>")
+        if tag not in self.VOID:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag in self.DROP_CONTENT and self.drop_depth:
+            self.drop_depth -= 1
+            return
+        if self.drop_depth or tag not in self.stack:
+            return
+        while self.stack:
+            current = self.stack.pop()
+            self.output.append(f"</{current}>")
+            if current == tag:
+                break
+
+    def handle_data(self, data):
+        if self.drop_depth or not data:
+            return
+        self.output.append(escape(data))
+        self.plain.append(data)
+
+    def result(self):
+        while self.stack:
+            self.output.append(f"</{self.stack.pop()}>")
+        return "".join(self.output), "".join(self.plain).strip()
+
+
+def sanitize_editor_html(value: str) -> tuple[str, str]:
+    if not isinstance(value, str) or len(value) > 300000:
+        raise HTTPException(status_code=422, detail="Formatted content is invalid or too large.")
+    parser = _SafeHtmlParser()
+    parser.feed(value)
+    parser.close()
+    safe_html, plain_text = parser.result()
+    if not plain_text:
+        raise HTTPException(status_code=422, detail="Formatted content cannot be empty.")
+    return safe_html, plain_text
 
 
 class DocumentFormattingService:
