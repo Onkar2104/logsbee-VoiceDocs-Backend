@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.models.document_format_version import DocumentFormatVersion
-from app.models.user_settings import UserSettings
 from app.services.document_formatting_service import DocumentFormattingService
 
 from fastapi import APIRouter, Depends, Query, status
@@ -26,7 +25,6 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 def _require_format_edit_access(db: Session, document, user):
     if DocumentService._can_manage(document, user):
         return
-    share = DocumentService.__dict__.get("_unused")
     from app.repositories.document_repository import DocumentRepository
     share = DocumentRepository.get_share(db, document.id, uuid.UUID(user.id))
     if share is None or share.edit_request_status != "approved":
