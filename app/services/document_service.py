@@ -60,7 +60,7 @@ class DocumentService:
         document = Document(
             id=document_id,
             title=title,
-            content="" if remote else data.content,
+            content=data.content,
             owner_user_id=uuid.UUID(user.id),
             account_id=account_id,
             drive_file_id=remote.get("id") if remote else None,
@@ -198,14 +198,16 @@ class DocumentService:
         if not cls._can_manage(document, user):
             raise HTTPException(status_code=403, detail="Only the owner or Account Admin can back up this document.")
         if document.backup_status != "backed_up":
+            # Hydrate legacy Drive-only records before attempting an update.
+            original_content = cls._with_content(db, document).content
             try:
                 if document.drive_file_id:
                     remote = GoogleDriveService.update_drive_document(
-                        db, str(document.owner_user_id), document.drive_file_id, document.title, document.content
+                        db, str(document.owner_user_id), document.drive_file_id, document.title, original_content
                     )
                 else:
                     remote = GoogleDriveService.upload_document(
-                        db, str(document.owner_user_id), str(document.id), document.title, document.content
+                        db, str(document.owner_user_id), str(document.id), document.title, original_content
                     )
             except HTTPException:
                 raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
@@ -213,7 +215,7 @@ class DocumentService:
                 raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
             document.drive_file_id = remote["id"]
             document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
-            document.content = ""
+            document.content = original_content
             document.backup_status = "backed_up"
             document.last_backup_at = datetime.now(timezone.utc)
             db.commit()
@@ -273,7 +275,7 @@ class DocumentService:
         document.title = title
         if remote:
             document.drive_file_id = remote["id"]
-            document.content = ""
+            document.content = content
             document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
             document.backup_status = "backed_up"
             document.last_backup_at = datetime.now(timezone.utc)
