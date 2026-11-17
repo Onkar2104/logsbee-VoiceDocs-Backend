@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+import re
 from io import BytesIO
 from html import escape
 
@@ -58,6 +59,25 @@ class _SafeHtmlParser(HTMLParser):
         if tag == "br":
             self.output.append("<br>")
             self.plain.append("\n")
+            return
+        if tag == "img":
+            attributes = dict(attrs)
+            source = (attributes.get("src") or "").strip()
+            match = re.fullmatch(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)", source)
+            if not match:
+                return
+            try:
+                image_bytes = base64.b64decode(match.group(2), validate=True)
+                if not image_bytes or len(image_bytes) > 1024 * 1024:
+                    return
+                with Image.open(BytesIO(image_bytes)) as image:
+                    if image.format not in {"PNG", "JPEG", "WEBP"}:
+                        return
+                    image.verify()
+            except (binascii.Error, OSError, ValueError):
+                return
+            alt = escape((attributes.get("alt") or "")[:200], quote=True)
+            self.output.append(f'<img src="{source}" alt="{alt}">')
             return
         if tag in {"p", "h1", "h2", "h3", "li", "blockquote"} and self.plain and not self.plain[-1].endswith("\n"):
             self.plain.append("\n")
