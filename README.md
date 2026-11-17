@@ -73,7 +73,7 @@ Set these server-only environment variables on the backend (never in Vite/fronte
 
 ```env
 GEMINI_API_KEY=your_google_ai_studio_api_key
-DOCUMENT_AI_TIMEOUT_SECONDS=90
+DOCUMENT_AI_TIMEOUT_SECONDS=180
 ```
 
 The feature does not run formatting automatically when a document is saved. A formatting request creates a new version. Users can edit and replace the selected version or save the edited content as a new version. Original and formatted DOCX files use separate Google Drive files. VoiceDocs retains database copies when Drive backup succeeds or fails.
