@@ -137,3 +137,55 @@ def test_formatted_docx_backup_preserves_headings_lists_and_inline_emphasis():
     assert document.paragraphs[3].style.name == "List Bullet"
     assert document.paragraphs[3].text == "दुसरा मुद्दा"
 
+
+
+def test_format_edit_permissions_allow_owner_account_admin_and_approved_share(monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.api.routes.documents import _require_format_edit_access
+    from app.repositories.document_repository import DocumentRepository
+    from app.services.document_service import DocumentService
+
+    owner_id = uuid4()
+    admin_id = uuid4()
+    editor_id = uuid4()
+    viewer_id = uuid4()
+    document = SimpleNamespace(owner_user_id=owner_id, id=uuid4())
+    db = object()
+
+    owner = SimpleNamespace(id=str(owner_id), role=SimpleNamespace(name="user"))
+    account_admin = SimpleNamespace(id=str(admin_id), role=SimpleNamespace(name="admin"))
+    approved_editor = SimpleNamespace(id=str(editor_id), role=SimpleNamespace(name="user"))
+    view_only = SimpleNamespace(id=str(viewer_id), role=SimpleNamespace(name="user"))
+
+    shares = {
+        editor_id: SimpleNamespace(edit_request_status="approved"),
+        viewer_id: SimpleNamespace(edit_request_status="pending"),
+    }
+    monkeypatch.setattr(
+        DocumentRepository,
+        "get_share",
+        lambda _db, _document_id, target_id: shares.get(target_id),
+    )
+
+    assert DocumentService._can_manage(document, owner)
+    assert DocumentService._can_manage(document, account_admin)
+    _require_format_edit_access(db, document, owner)
+    _require_format_edit_access(db, document, account_admin)
+    _require_format_edit_access(db, document, approved_editor)
+
+    with pytest.raises(HTTPException) as error:
+        _require_format_edit_access(db, document, view_only)
+    assert error.value.status_code == 403
+
+
+def test_super_admin_role_is_not_treated_as_account_admin():
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.services.document_service import DocumentService
+
+    document = SimpleNamespace(owner_user_id=uuid4())
+    super_admin = SimpleNamespace(id=str(uuid4()), role=SimpleNamespace(name="Super admin"))
+    assert DocumentService._can_manage(document, super_admin) is False
