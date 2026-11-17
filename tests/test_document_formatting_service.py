@@ -270,6 +270,42 @@ def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch):
 
 
 
+
+def test_formatting_retries_one_read_timeout_then_succeeds(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = {"count": 0}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Timeout retry worked"}]
+            })}]}}]}
+
+    def fake_post(*_args, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise httpx.ReadTimeout("provider read timeout")
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result, html = DocumentFormattingService.format_transcript("Meeting notes")
+
+    assert calls["count"] == 2
+    assert result["blocks"][0]["text"] == "Timeout retry worked"
+    assert "Timeout retry worked" in html
+
+
 def test_formatting_retries_transient_gemini_503_then_succeeds(monkeypatch):
     import json
     import httpx
