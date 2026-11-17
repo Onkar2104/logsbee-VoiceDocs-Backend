@@ -40,7 +40,7 @@ OUTPUT_SCHEMA = {
 
 class _SafeHtmlParser(HTMLParser):
     ALLOWED = {"p", "h1", "h2", "h3", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "br", "a", "img"}
-    VOID = {"br"}
+    VOID = {"br", "img"}
     DROP_CONTENT = {"script", "style", "iframe", "object", "svg", "math"}
 
     def __init__(self):
