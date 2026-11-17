@@ -314,7 +314,7 @@ class DocumentFormattingService:
                 response is not None and response.status_code in transient_statuses
             )
             if primary_unavailable:
-                fallback_model = "gemini-3.7-flash"
+                fallback_model = "gemini-3.6-flash"
                 fallback_url = (
                     "https://generativelanguage.googleapis.com/v1beta/models/"
                     f"{fallback_model}:generateContent"
