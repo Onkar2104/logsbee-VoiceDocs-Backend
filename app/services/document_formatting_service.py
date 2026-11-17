@@ -3,6 +3,7 @@ import binascii
 import json
 import logging
 import re
+import time
 from io import BytesIO
 from html import escape
 
@@ -238,14 +239,27 @@ class DocumentFormattingService:
             },
         }
         try:
-            response = httpx.post(
-                url,
-                headers={"x-goog-api-key": settings.gemini_api_key},
-                json=payload,
-                timeout=settings.document_ai_timeout_seconds,
-            )
-            if response.status_code == 429:
-                raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
+            # Gemini can return 503 during temporary serving-capacity pressure.
+            # Retry only transient server failures, with a short bounded backoff.
+            response = None
+            for attempt in range(3):
+                response = httpx.post(
+                    url,
+                    headers={"x-goog-api-key": settings.gemini_api_key},
+                    json=payload,
+                    timeout=settings.document_ai_timeout_seconds,
+                )
+                if response.status_code == 429:
+                    raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
+                if response.status_code not in {500, 502, 503, 504} or attempt == 2:
+                    break
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = min(5.0, max(0.0, float(retry_after))) if retry_after else float(attempt + 1)
+                except (TypeError, ValueError):
+                    delay = float(attempt + 1)
+                time.sleep(delay)
+
             response.raise_for_status()
             data = response.json()
             raw = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -261,6 +275,8 @@ class DocumentFormattingService:
                 type(exc).__name__,
                 status_code,
             )
+            if status_code == 503:
+                raise HTTPException(status_code=503, detail="Gemini is temporarily overloaded. Please try again in a moment.") from exc
             raise HTTPException(status_code=502, detail="Document formatting is temporarily unavailable. Please try again.") from exc
         structured = cls._validate_result(parsed)
         return structured, cls._to_html(structured)
