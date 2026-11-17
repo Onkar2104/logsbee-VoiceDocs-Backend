@@ -133,6 +133,15 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
     version.content_html = html
     version.updated_at = datetime.now(timezone.utc)
     version.backup_status = "not_backed_up"
+    document.active_format_version_id = version.id
+    document.updated_by = uuid.UUID(user.id)
+    document.updated_at = datetime.now(timezone.utc)
+
+    # Persist the user's edit before making a network request. A Drive outage
+    # must never roll back the only saved copy of the formatted document.
+    db.commit()
+    db.refresh(version)
+
     preferences = db.query(UserSettings).filter(UserSettings.user_id == document.owner_user_id).first()
     if preferences is None or preferences.automatic_backup_enabled:
         try:
@@ -144,12 +153,13 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
             version.drive_web_view_link = remote.get("webViewLink") or version.drive_web_view_link
             version.backup_status = "backed_up"
             version.last_backup_at = datetime.now(timezone.utc)
+            db.commit()
         except HTTPException:
-            version.backup_status = "not_backed_up"
-    document.active_format_version_id = version.id
-    document.updated_by = uuid.UUID(user.id)
-    document.updated_at = datetime.now(timezone.utc)
-    db.commit()
+            db.rollback()
+            version = db.query(DocumentFormatVersion).filter(
+                DocumentFormatVersion.id == version_id,
+                DocumentFormatVersion.document_id == document.id,
+            ).first()
     db.refresh(version)
     return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
 
