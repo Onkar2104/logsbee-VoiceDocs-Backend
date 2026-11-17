@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.models.document_format_version import DocumentFormatVersion
 from app.models.user_settings import UserSettings
-from app.services.document_formatting_service import DocumentFormattingService
+from app.services.document_formatting_service import DocumentFormattingService, sanitize_editor_html
 from app.services.google_drive_service import GoogleDriveService
 
 from fastapi import APIRouter, Depends, Query, status
@@ -106,7 +106,7 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
     if not isinstance(content_html, str):
         raise HTTPException(status_code=422, detail="Formatted content must be HTML text.")
     try:
-        html, plain_text = DocumentFormattingService.sanitize_editor_html(content_html)
+        html, plain_text = sanitize_editor_html(content_html)
     except (AttributeError, TypeError) as exc:
         # Keep document text and request bodies out of logs; this traceback records
         # only the failing code path so unexpected sanitizer errors can be diagnosed.
@@ -143,7 +143,7 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
     try:
-        html, plain_text = DocumentFormattingService.sanitize_editor_html(payload.get("content_html"))
+        html, plain_text = sanitize_editor_html(payload.get("content_html"))
     except (AttributeError, TypeError):
         raise HTTPException(status_code=422, detail="A valid formatted document is required.")
     version.content_json = {"blocks": [{"type": "paragraph", "text": plain_text}]}
