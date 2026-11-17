@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from fastapi.responses import Response
 
 from app.models.document_format_version import DocumentFormatVersion
 from app.models.user_settings import UserSettings
@@ -21,6 +22,7 @@ from app.schemas.document import (
 )
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.document_service import DocumentService
+from app.services.docx_converter import html_to_docx
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,41 @@ def _lock_document_for_version_write(db: Session, document):
     """Serialize version-number allocation and active-version updates per document."""
     model = type(document)
     return db.query(model).filter(model.id == document.id).with_for_update().one()
+
+
+@router.post("/{document_id}/export/docx")
+def export_document_docx(
+    document_id: uuid.UUID,
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    """Build a fresh Word-compatible DOCX package from the authorized document HTML."""
+    document = DocumentService._get_visible_document(db, document_id, user)
+    content_html = payload.get("content_html") if isinstance(payload, dict) else None
+    if not isinstance(content_html, str):
+        raise HTTPException(status_code=422, detail="Document content must be HTML text.")
+    safe_html, _ = sanitize_editor_html(content_html)
+    from app.services.docx_converter import html_to_docx
+
+    try:
+        docx_bytes = html_to_docx(safe_html)
+    except Exception as exc:
+        logger.exception("DOCX export failed (exception_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="The Word document could not be generated. Please try again.") from exc
+
+    safe_name = re.sub(r'[<>:"/\\\\|?*]+', "-", document.title).strip(" .") or "VoiceDocs document"
+    filename = f"{safe_name[:120]}.docx"
+    from urllib.parse import quote
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"VoiceDocs-document.docx\"; filename*=UTF-8''{quote(filename)}",
+            "Content-Length": str(len(docx_bytes)),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/{document_id}/format")
