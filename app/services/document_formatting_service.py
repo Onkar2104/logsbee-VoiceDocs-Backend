@@ -50,7 +50,11 @@ class _SafeHtmlParser(HTMLParser):
             return
         if self.drop_depth or tag not in self.ALLOWED:
             return
-        if tag in {"p", "h1", "h2", "h3", "li", "blockquote"} and self.plain:
+        if tag == "br":
+            self.output.append("<br>")
+            self.plain.append("\n")
+            return
+        if tag in {"p", "h1", "h2", "h3", "li", "blockquote"} and self.plain and not self.plain[-1].endswith("\n"):
             self.plain.append("\n")
         attributes = dict(attrs)
         extra = ""
