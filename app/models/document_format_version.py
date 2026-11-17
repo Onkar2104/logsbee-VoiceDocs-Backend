@@ -28,6 +28,7 @@ class DocumentFormatVersion(Base):
     # Structured JSON is canonical; sanitized HTML is the editor-friendly representation.
     content_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
     content_html: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    legal_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     drive_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     drive_web_view_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     backup_status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_backed_up")
