@@ -40,9 +40,9 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     _require_format_edit_access(db, document, user)
     source = DocumentService._with_content(db, document).content
     source_images = ""
-    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\\b", source, re.IGNORECASE):
+    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
         safe_source_html, source = DocumentFormattingService.sanitize_editor_html(source)
-        source_images = "".join(re.findall(r"<img\\b[^>]*>", safe_source_html, re.IGNORECASE))
+        source_images = "".join(re.findall(r"<img\b[^>]*>", safe_source_html, re.IGNORECASE))
     structured, html = DocumentFormattingService.format_transcript(source)
     # Keep validated image binaries in the formatted version. Text formatting
     # does not recreate or modify embedded images.
