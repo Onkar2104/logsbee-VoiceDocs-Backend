@@ -193,21 +193,32 @@ class DocumentFormattingService:
     @staticmethod
     def _to_html(content: dict) -> str:
         parts = []
-        for block in content["blocks"]:
-            text = escape(block["text"]).replace("\n", "<br>")
+        blocks = content["blocks"]
+        index = 0
+        while index < len(blocks):
+            block = blocks[index]
             kind = block["type"]
+            if kind in {"bullet", "number"}:
+                tag = "ul" if kind == "bullet" else "ol"
+                items = []
+                while index < len(blocks) and blocks[index]["type"] == kind:
+                    text = escape(blocks[index]["text"]).replace("\\n", "<br>")
+                    items.append(f"<li>{text}</li>")
+                    index += 1
+                parts.append(f"<{tag}>{''.join(items)}</{tag}>")
+                continue
+
+            text = escape(block["text"]).replace("\\n", "<br>")
             if kind == "title":
                 parts.append(f"<h1>{text}</h1>")
             elif kind == "heading":
-                parts.append(f"<h{block.get('level', 2)}>{text}</h{block.get('level', 2)}>")
-            elif kind == "bullet":
-                parts.append(f"<ul><li>{text}</li></ul>")
-            elif kind == "number":
-                parts.append(f"<ol><li>{text}</li></ol>")
+                level = block.get("level", 2)
+                parts.append(f"<h{level}>{text}</h{level}>")
             elif kind == "quote":
                 parts.append(f"<blockquote><p>{text}</p></blockquote>")
             else:
                 parts.append(f"<p>{text}</p>")
+            index += 1
         return "".join(parts)
 
     @classmethod
