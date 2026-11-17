@@ -56,7 +56,7 @@ class _HtmlToDocx(HTMLParser):
                 if self.parts:
                     self._flush()
                 self.document.add_picture(BytesIO(converted.getvalue()), width=Inches(5.8))
-            except (ValueError, binascii.Error, OSError):
+            except (ValueError, binascii.Error, OSError, SyntaxError):
                 return
         elif tag == "br":
             self.parts.append(("\n", self.bold, self.italic, self.underline))
