@@ -252,9 +252,7 @@ def backup_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     return DocumentService.backup(db, document_id, user)
 
 
-@router.get("/{document_id}", response_model=DocumentResponse)
-def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
-    document = DocumentService.get(db, document_id, user)
+def _document_response(db: Session, document, user) -> DocumentResponse:
     can_edit = DocumentService._can_manage(document, user)
     if not can_edit:
         from app.repositories.document_repository import DocumentRepository
@@ -264,9 +262,16 @@ def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: Lo
     return response.model_copy(update={"can_edit": can_edit})
 
 
+@router.get("/{document_id}", response_model=DocumentResponse)
+def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    document = DocumentService.get(db, document_id, user)
+    return _document_response(db, document, user)
+
+
 @router.put("/{document_id}", response_model=DocumentResponse)
 def update_document(document_id: uuid.UUID, data: DocumentUpdate, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
-    return DocumentService.update(db, document_id, data, user)
+    document = DocumentService.update(db, document_id, data, user)
+    return _document_response(db, document, user)
 
 
 @router.delete("/{document_id}")
