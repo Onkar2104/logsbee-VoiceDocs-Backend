@@ -74,7 +74,7 @@ class _SafeHtmlParser(HTMLParser):
                     if image.format not in {"PNG", "JPEG", "WEBP"}:
                         return
                     image.verify()
-            except (binascii.Error, OSError, ValueError):
+            except (binascii.Error, OSError, SyntaxError, ValueError):
                 return
             alt = escape((attributes.get("alt") or "")[:200], quote=True)
             self.output.append(f'<img src="{source}" alt="{alt}">')
