@@ -138,6 +138,25 @@ def test_sanitizer_rejects_empty_content():
     assert error.value.status_code == 422
 
 
+def test_formatted_html_groups_consecutive_numbered_and_bulleted_items():
+    html = DocumentFormattingService._to_html({
+        "blocks": [
+            {"type": "number", "text": "पहिला मुद्दा"},
+            {"type": "number", "text": "दुसरा मुद्दा"},
+            {"type": "bullet", "text": "उपमुद्दा अ"},
+            {"type": "bullet", "text": "उपमुद्दा ब"},
+            {"type": "number", "text": "तिसरा मुद्दा"},
+        ]
+    })
+
+    assert html.count("<ol>") == 2
+    assert html.count("<ul>") == 1
+    assert html.count("<li>") == 5
+    assert "<ol><li>पहिला मुद्दा</li><li>दुसरा मुद्दा</li></ol>" in html
+    assert "<ul><li>उपमुद्दा अ</li><li>उपमुद्दा ब</li></ul>" in html
+    assert html.endswith("<ol><li>तिसरा मुद्दा</li></ol>")
+
+
 def test_structured_output_validation_preserves_non_english_text():
     result = DocumentFormattingService._validate_result({
         "blocks": [
