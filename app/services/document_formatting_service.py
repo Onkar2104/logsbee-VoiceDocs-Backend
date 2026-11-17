@@ -262,61 +262,92 @@ class DocumentFormattingService:
             },
         }
         try:
-            # Gemini can be slow for longer transcripts. Use an explicit read
-            # timeout and retry one transient timeout without exposing source data.
-            response = None
+            # Retry one transient primary failure, then make one bounded attempt
+            # with a second stable Flash model. A primary read timeout must also
+            # trigger fallback; it must not skip fallback or leave response unset.
             timeout = httpx.Timeout(
                 connect=15.0,
                 read=settings.document_ai_timeout_seconds,
                 write=30.0,
                 pool=15.0,
             )
-            timeout_retries = 0
-            for attempt in range(3):
+            headers = {"x-goog-api-key": settings.gemini_api_key}
+            transient_statuses = {500, 502, 503, 504}
+            response = None
+            primary_error = None
+
+            for attempt in range(2):
                 try:
-                    response = httpx.post(
-                        url,
-                        headers={"x-goog-api-key": settings.gemini_api_key},
-                        json=payload,
-                        timeout=timeout,
-                    )
-                except httpx.TimeoutException:
-                    if timeout_retries >= 1:
-                        raise
-                    timeout_retries += 1
+                    response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+                    primary_error = None
+                except httpx.TimeoutException as exc:
+                    primary_error = exc
+                    response = None
+
+                if response is not None:
+                    if response.status_code == 429:
+                        raise HTTPException(
+                            status_code=429,
+                            detail="Document formatting is temporarily busy. Please try again later.",
+                        )
+                    if response.status_code not in transient_statuses:
+                        break
+                    primary_error = None
+                    if attempt == 0:
+                        retry_after = response.headers.get("Retry-After")
+                        try:
+                            delay = min(5.0, max(0.0, float(retry_after))) if retry_after else 1.0
+                        except (TypeError, ValueError):
+                            delay = 1.0
+                        time.sleep(delay)
+                        continue
+                    primary_error = response
+                elif attempt == 0:
                     time.sleep(2.0)
                     continue
-                if response.status_code == 429:
-                    raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
-                if response.status_code not in {500, 502, 503, 504} or attempt == 2:
-                    break
-                retry_after = response.headers.get("Retry-After")
-                try:
-                    delay = min(5.0, max(0.0, float(retry_after))) if retry_after else float(attempt + 1)
-                except (TypeError, ValueError):
-                    delay = float(attempt + 1)
-                time.sleep(delay)
 
-            # If the primary free-tier model remains overloaded after retries,
-            # make one best-effort attempt with another stable free-tier Flash model.
-            if response is not None and response.status_code == 503:
-                fallback_model = "gemini-3.6-flash"
+                break
+
+            primary_unavailable = (
+                response is None and primary_error is not None
+            ) or (
+                response is not None and response.status_code in transient_statuses
+            )
+            if primary_unavailable:
+                fallback_model = "gemini-3.7-flash"
                 fallback_url = (
                     "https://generativelanguage.googleapis.com/v1beta/models/"
                     f"{fallback_model}:generateContent"
                 )
+                primary_status = getattr(primary_error, "status_code", None)
                 logger.warning(
-                    "Primary Gemini model unavailable; attempting stable fallback model (primary_status=%s)",
-                    response.status_code,
+                    "Primary Gemini model unavailable; attempting stable fallback model (primary_status=%s, primary_timeout=%s)",
+                    primary_status,
+                    isinstance(primary_error, httpx.TimeoutException),
                 )
-                response = httpx.post(
-                    fallback_url,
-                    headers={"x-goog-api-key": settings.gemini_api_key},
-                    json=payload,
-                    timeout=timeout,
+                try:
+                    response = httpx.post(
+                        fallback_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=timeout,
+                    )
+                except httpx.TimeoutException:
+                    # Preserve the primary failure for safe, actionable error mapping.
+                    if primary_error is not None and isinstance(primary_error, httpx.TimeoutException):
+                        raise primary_error
+                    raise
+
+            if response is None:
+                if isinstance(primary_error, httpx.TimeoutException):
+                    raise primary_error
+                raise httpx.ReadTimeout("Gemini did not return a response.")
+
+            if response.status_code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Document formatting is temporarily busy. Please try again later.",
                 )
-                if response.status_code == 429:
-                    raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
 
             response.raise_for_status()
             data = response.json()
