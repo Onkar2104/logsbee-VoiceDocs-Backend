@@ -88,3 +88,26 @@ def test_document_and_format_version_relationships_are_unambiguous():
     assert hasattr(Document, "format_versions")
     assert hasattr(Document, "active_format_version")
     assert hasattr(DocumentFormatVersion, "document")
+
+def test_formatted_docx_backup_preserves_headings_lists_and_inline_emphasis():
+    from io import BytesIO
+
+    from docx import Document
+
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx(
+        "<h1>बैठक</h1><p><strong>महत्त्वाचे</strong> मुद्दे</p>"
+        "<ul><li>पहिला मुद्दा</li><li>दुसरा मुद्दा</li></ul>"
+    )
+    document = Document(BytesIO(output))
+
+    assert document.paragraphs[0].style.name == "Heading 1"
+    assert document.paragraphs[0].text == "बैठक"
+    assert document.paragraphs[1].text == "महत्त्वाचे मुद्दे"
+    assert document.paragraphs[1].runs[0].bold is True
+    assert document.paragraphs[2].style.name == "List Bullet"
+    assert document.paragraphs[2].text == "पहिला मुद्दा"
+    assert document.paragraphs[3].style.name == "List Bullet"
+    assert document.paragraphs[3].text == "दुसरा मुद्दा"
+
