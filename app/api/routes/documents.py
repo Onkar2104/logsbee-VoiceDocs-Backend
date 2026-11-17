@@ -210,6 +210,10 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
         raise HTTPException(status_code=422, detail="A valid formatted document is required.")
     version.content_json = {"blocks": [{"type": "paragraph", "text": plain_text}]}
     version.content_html = html
+    version.legal_metadata = (
+        {"formatting_mode": "legal", **get_legal_context(document.jurisdiction, document.legal_category, document.document_type)}
+        if document.formatting_mode == "legal" else {"formatting_mode": "general"}
+    )
     version.updated_at = datetime.now(timezone.utc)
     version.backup_status = "not_backed_up"
     document.active_format_version_id = version.id
@@ -296,6 +300,7 @@ def get_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Sess
         "version_number": version.version_number,
         "content_json": version.content_json,
         "content_html": version.content_html,
+        "legal_metadata": version.legal_metadata,
         "backup_status": version.backup_status,
         "created_at": version.created_at,
         "updated_at": version.updated_at,
