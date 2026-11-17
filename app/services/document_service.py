@@ -11,6 +11,7 @@ from app.models.user_settings import UserSettings
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentCreate, DocumentUpdate
 from app.services.google_drive_service import GoogleDriveService
+from app.services.legal_document_catalog import validate_document_metadata
 
 
 class DocumentService:
@@ -51,6 +52,12 @@ class DocumentService:
         account_id = cls._require_account(user)
         document_id = uuid.uuid4()
         title = data.title.strip()
+        try:
+            legal_metadata = validate_document_metadata(
+                data.formatting_mode, data.jurisdiction, data.legal_category, data.document_type
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         remote = None
         if cls._automatic_backup_enabled(db, uuid.UUID(user.id)):
             try:
@@ -61,6 +68,7 @@ class DocumentService:
             id=document_id,
             title=title,
             content=data.content,
+            **legal_metadata,
             owner_user_id=uuid.UUID(user.id),
             account_id=account_id,
             drive_file_id=remote.get("id") if remote else None,
@@ -259,6 +267,18 @@ class DocumentService:
             if share is None or share.edit_request_status != "approved":
                 raise HTTPException(status_code=403, detail="Edit access has not been approved.")
         changes = data.model_dump(exclude_unset=True)
+        metadata_fields = {"formatting_mode", "jurisdiction", "legal_category", "document_type"}
+        if metadata_fields.intersection(changes):
+            candidate = {
+                "formatting_mode": changes.get("formatting_mode", document.formatting_mode),
+                "jurisdiction": changes.get("jurisdiction", document.jurisdiction),
+                "legal_category": changes.get("legal_category", document.legal_category),
+                "document_type": changes.get("document_type", document.document_type),
+            }
+            try:
+                changes.update(validate_document_metadata(**candidate))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         title = changes.get("title", document.title)
         content = changes.get("content")
         if content is None:
