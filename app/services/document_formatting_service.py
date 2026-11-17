@@ -274,6 +274,25 @@ class DocumentFormattingService:
                     delay = float(attempt + 1)
                 time.sleep(delay)
 
+            # If the primary free-tier model remains overloaded after retries,
+            # make one best-effort attempt with another stable free-tier Flash model.
+            if response is not None and response.status_code == 503:
+                fallback_model = "gemini-3.6-flash"
+                fallback_url = (
+                    "https://generativelanguage.googleapis.com/v1beta/models/"
+                    f"{fallback_model}:generateContent"
+                )
+                logger.warning(
+                    "Primary Gemini model unavailable; attempting stable fallback model (primary_status=%s)",
+                    response.status_code,
+                )
+                response = httpx.post(
+                    fallback_url,
+                    headers={"x-goog-api-key": settings.gemini_api_key},
+                    json=payload,
+                    timeout=timeout,
+                )
+
             response.raise_for_status()
             data = response.json()
             raw = data["candidates"][0]["content"]["parts"][0]["text"]
