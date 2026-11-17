@@ -254,7 +254,14 @@ def backup_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
-    return DocumentService.get(db, document_id, user)
+    document = DocumentService.get(db, document_id, user)
+    can_edit = DocumentService._can_manage(document, user)
+    if not can_edit:
+        from app.repositories.document_repository import DocumentRepository
+        share = DocumentRepository.get_share(db, document.id, uuid.UUID(user.id))
+        can_edit = bool(share and share.edit_request_status == "approved")
+    response = DocumentResponse.model_validate(document)
+    return response.model_copy(update={"can_edit": can_edit})
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)
