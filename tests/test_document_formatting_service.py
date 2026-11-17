@@ -188,6 +188,24 @@ def test_document_and_format_version_relationships_are_unambiguous():
     assert hasattr(Document, "active_format_version")
     assert hasattr(DocumentFormatVersion, "document")
 
+def test_backend_docx_export_writer_preserves_ordered_list_numbering():
+    from io import BytesIO
+
+    from docx import Document
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx(
+        "<h1>बैठक</h1><ol><li>पहिला मुद्दा</li><li>दुसरा मुद्दा</li><li>तिसरा मुद्दा</li></ol>"
+        "<ul><li>अतिरिक्त मुद्दा</li></ul>"
+    )
+    document = Document(BytesIO(output))
+
+    numbered = [paragraph for paragraph in document.paragraphs if paragraph.style.name == "List Number"]
+    bullets = [paragraph for paragraph in document.paragraphs if paragraph.style.name == "List Bullet"]
+    assert [paragraph.text for paragraph in numbered] == ["पहिला मुद्दा", "दुसरा मुद्दा", "तिसरा मुद्दा"]
+    assert [paragraph.text for paragraph in bullets] == ["अतिरिक्त मुद्दा"]
+
+
 def test_formatted_docx_backup_preserves_headings_lists_and_inline_emphasis():
     from io import BytesIO
 
