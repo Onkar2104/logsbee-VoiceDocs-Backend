@@ -52,7 +52,7 @@ def test_sanitizer_removes_javascript_links():
 
 
 def test_sanitizer_preserves_small_embedded_images_and_rejects_remote_images():
-    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/WioAAAAASUVORK5CYII="
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
     html, plain = sanitize_editor_html(
         f'<p>Before</p><img src="data:image/png;base64,{pixel}" alt="sample"><p>After</p>'
     )
@@ -71,7 +71,7 @@ def test_docx_backup_embeds_sanitized_image():
 
     from app.services.docx_converter import html_to_docx
 
-    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/WioAAAAASUVORK5CYII="
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
     output = html_to_docx(f'<p>Image:</p><img src="data:image/png;base64,{pixel}">')
     with ZipFile(BytesIO(output)) as archive:
         assert any(name.startswith("word/media/") for name in archive.namelist())
