@@ -33,6 +33,15 @@ class Document(Base):
     deleted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     shares: Mapped[list["DocumentShare"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    format_versions: Mapped[list["DocumentFormatVersion"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", foreign_keys="DocumentFormatVersion.document_id"
+    )
+    active_format_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_format_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    active_format_version: Mapped["DocumentFormatVersion | None"] = relationship(
+        foreign_keys=[active_format_version_id], post_update=True
+    )
 
 
 class DocumentShare(Base):

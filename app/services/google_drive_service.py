@@ -223,7 +223,6 @@ class GoogleDriveService:
             )
             db.add(item)
         item.drive_file_id = remote["id"]
-        item.file_data = None
         item.backup_status = "backed_up"
         item.last_backup_at = datetime.now(timezone.utc)
         db.commit()
@@ -277,6 +276,18 @@ class GoogleDriveService:
             content=body,
         )
         return response.json()
+
+
+    @staticmethod
+    def upload_formatted_version(db: Session, owner_user_id: str, document_id: str, version_number: int, title: str, content_html: str) -> dict:
+        """Create a separate DOCX file for one formatted document version."""
+        return GoogleDriveService.upload_document(
+            db,
+            owner_user_id,
+            f"{document_id}-formatted-v{version_number}",
+            f"{title} - Formatted v{version_number}",
+            content_html,
+        )
 
     @staticmethod
     def update_drive_document(db: Session, owner_user_id: str, drive_file_id: str, title: str, content: str) -> dict:

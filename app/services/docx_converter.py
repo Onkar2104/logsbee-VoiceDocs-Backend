@@ -1,6 +1,10 @@
 from html.parser import HTMLParser
+import base64
+import binascii
 from io import BytesIO
 from html import escape
+
+from PIL import Image
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -33,6 +37,27 @@ class _HtmlToDocx(HTMLParser):
         if tag in ("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
             if self.parts:
                 self._flush()
+        elif tag == "img":
+            source = dict(attrs).get("src", "")
+            try:
+                header, encoded = source.split(",", 1)
+                if header not in {"data:image/png;base64", "data:image/jpeg;base64", "data:image/webp;base64"}:
+                    return
+                raw = base64.b64decode(encoded, validate=True)
+                if not raw or len(raw) > 1024 * 1024:
+                    return
+                with Image.open(BytesIO(raw)) as image:
+                    if image.format not in {"PNG", "JPEG", "WEBP"}:
+                        return
+                    image.load()
+                    mode = "RGBA" if "A" in image.getbands() else "RGB"
+                    converted = BytesIO()
+                    image.convert(mode).save(converted, format="PNG")
+                if self.parts:
+                    self._flush()
+                self.document.add_picture(BytesIO(converted.getvalue()), width=Inches(5.8))
+            except (ValueError, binascii.Error, OSError, SyntaxError):
+                return
         elif tag == "br":
             self.parts.append(("\n", self.bold, self.italic, self.underline))
         elif tag in ("ul", "ol"):

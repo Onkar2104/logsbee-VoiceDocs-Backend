@@ -61,6 +61,7 @@ from app.db.base import Base
 
 # Import all models so Alembic can detect their tables.
 from app.models.document import Document, DocumentShare
+from app.models.document_format_version import DocumentFormatVersion
 from app.models.google_drive import (
     AudioRecording,
     GoogleDriveConnection,
