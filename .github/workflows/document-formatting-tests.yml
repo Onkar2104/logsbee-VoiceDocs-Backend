@@ -12,6 +12,7 @@ jobs:
   formatting-unit-tests:
     runs-on: ubuntu-latest
     env:
+      PYTHONPATH: .
       APP_NAME: VoiceDocs CI
       API_V1_PREFIX: /api
       ENVIRONMENT: test
