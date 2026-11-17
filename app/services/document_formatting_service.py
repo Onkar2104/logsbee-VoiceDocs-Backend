@@ -1,5 +1,10 @@
+import base64
+import binascii
 import json
+from io import BytesIO
 from html import escape
+
+from PIL import Image
 from html.parser import HTMLParser
 
 import httpx
@@ -33,7 +38,7 @@ OUTPUT_SCHEMA = {
 
 
 class _SafeHtmlParser(HTMLParser):
-    ALLOWED = {"p", "h1", "h2", "h3", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "br", "a"}
+    ALLOWED = {"p", "h1", "h2", "h3", "strong", "b", "em", "i", "u", "s", "ul", "ol", "li", "blockquote", "br", "a", "img"}
     VOID = {"br"}
     DROP_CONTENT = {"script", "style", "iframe", "object", "svg", "math"}
 
