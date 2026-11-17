@@ -263,7 +263,17 @@ class DocumentService:
         content = changes.get("content")
         if content is None:
             content = cls._with_content(db, document).content
-        remote = None
+        document.title = title
+        document.content = content
+        document.backup_status = "not_backed_up"
+        document.updated_by = uuid.UUID(user.id)
+        document.updated_at = datetime.now(timezone.utc)
+
+        # Commit the canonical VoiceDocs copy before attempting Google Drive.
+        # Network failures must not prevent the user's document edits from saving.
+        DocumentRepository.commit(db)
+        db.refresh(document)
+
         if cls._automatic_backup_enabled(db, document.owner_user_id):
             try:
                 if document.drive_file_id:
@@ -274,22 +284,16 @@ class DocumentService:
                     remote = GoogleDriveService.upload_document(
                         db, str(document.owner_user_id), str(document.id), title, content
                     )
+                if remote:
+                    document.drive_file_id = remote["id"]
+                    document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
+                    document.backup_status = "backed_up"
+                    document.last_backup_at = datetime.now(timezone.utc)
+                    DocumentRepository.commit(db)
+                    db.refresh(document)
             except HTTPException:
-                remote = None
-        document.title = title
-        if remote:
-            document.drive_file_id = remote["id"]
-            document.content = content
-            document.drive_web_view_link = remote.get("webViewLink") or document.drive_web_view_link
-            document.backup_status = "backed_up"
-            document.last_backup_at = datetime.now(timezone.utc)
-        else:
-            document.content = content
-            document.backup_status = "not_backed_up"
-        document.updated_by = uuid.UUID(user.id)
-        document.updated_at = datetime.now(timezone.utc)
-        DocumentRepository.commit(db)
-        db.refresh(document)
+                db.rollback()
+                document = DocumentRepository.get_active_by_id(db, document_id)
         return cls._with_content(db, document)
 
     @classmethod
