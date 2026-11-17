@@ -1,6 +1,7 @@
 import logging
 import re
 import uuid
+from html import escape as html_escape
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -59,7 +60,7 @@ def export_document_docx(
         raise HTTPException(status_code=422, detail="Document content must be HTML text.")
     safe_html, _ = sanitize_editor_html(content_html)
     try:
-        docx_bytes = html_to_docx(safe_html)
+        docx_bytes = html_to_docx(f'<h1>{html_escape(document.title)}</h1>{safe_html}')
     except Exception as exc:
         logger.exception("DOCX export failed (exception_type=%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail="The Word document could not be generated. Please try again.") from exc
