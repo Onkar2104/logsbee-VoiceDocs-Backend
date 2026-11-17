@@ -276,7 +276,10 @@ class DocumentService:
                 "document_type": changes.get("document_type", document.document_type),
             }
             try:
-                changes.update(validate_document_metadata(**candidate))
+                changes.update(validate_document_metadata(
+                    candidate["formatting_mode"], candidate["jurisdiction"],
+                    candidate["legal_category"], candidate["document_type"],
+                ))
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         title = changes.get("title", document.title)
