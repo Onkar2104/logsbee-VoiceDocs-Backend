@@ -269,6 +269,66 @@ def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch):
     assert error.value.status_code == 429
 
 
+
+def test_formatting_retries_transient_gemini_503_then_succeeds(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = {"count": 0}
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "https://example.test")
+                response = httpx.Response(self.status_code, request=request)
+                raise httpx.HTTPStatusError("provider error", request=request, response=response)
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Formatted successfully"}]
+            })}]}}]}
+
+    def fake_post(*_args, **_kwargs):
+        calls["count"] += 1
+        return Response(503 if calls["count"] < 3 else 200)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result, html = DocumentFormattingService.format_transcript("Meeting notes")
+
+    assert calls["count"] == 3
+    assert result["blocks"][0]["text"] == "Formatted successfully"
+    assert "Formatted successfully" in html
+
+
+def test_formatting_returns_retryable_503_after_transient_retries(monkeypatch):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = {"count": 0}
+
+    def unavailable(*_args, **_kwargs):
+        calls["count"] += 1
+        request = httpx.Request("POST", "https://example.test")
+        response = httpx.Response(503, request=request)
+        return response
+
+    monkeypatch.setattr(httpx, "post", unavailable)
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("Meeting notes")
+
+    assert calls["count"] == 3
+    assert error.value.status_code == 503
+    assert "temporarily overloaded" in error.value.detail
+
 def test_formatting_handles_provider_timeout_without_exposing_source(monkeypatch):
     import httpx
     from app.core.config import settings
