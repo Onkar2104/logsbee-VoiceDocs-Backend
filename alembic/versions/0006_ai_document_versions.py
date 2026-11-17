@@ -1,14 +1,14 @@
 """Add versioned formatted document storage.
 
 Revision ID: 0006_ai_document_versions
-Revises: 0005_user_preferences, 0005_database_backup_fallback
+Revises: 0007_merge_backup_and_settings
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0006_ai_document_versions"
-down_revision = ("0005_user_preferences", "0005_database_backup_fallback")
+down_revision = "0007_merge_backup_and_settings"
 branch_labels = None
 depends_on = None
 
