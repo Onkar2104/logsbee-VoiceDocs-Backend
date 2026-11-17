@@ -1,6 +1,10 @@
 from html.parser import HTMLParser
+import base64
+import binascii
 from io import BytesIO
 from html import escape
+
+from PIL import Image
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
