@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +21,8 @@ from app.schemas.document import (
 )
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.document_service import DocumentService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -97,10 +100,18 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
     document = _lock_document_for_version_write(db, document)
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Formatted content must be sent as an object.")
+    content_html = payload.get("content_html")
+    if not isinstance(content_html, str):
+        raise HTTPException(status_code=422, detail="Formatted content must be HTML text.")
     try:
-        html, plain_text = DocumentFormattingService.sanitize_editor_html(payload.get("content_html"))
-    except (AttributeError, TypeError):
-        raise HTTPException(status_code=422, detail="A valid formatted document is required.")
+        html, plain_text = DocumentFormattingService.sanitize_editor_html(content_html)
+    except (AttributeError, TypeError) as exc:
+        # Keep document text and request bodies out of logs; this traceback records
+        # only the failing code path so unexpected sanitizer errors can be diagnosed.
+        logger.exception("Formatted-version sanitization failed (exception_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=422, detail="Formatted content could not be validated. Please try again.") from exc
     latest = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.document_id == document.id).order_by(DocumentFormatVersion.version_number.desc()).first()
     version = DocumentFormatVersion(document_id=document.id, version_number=(latest.version_number + 1) if latest else 1, content_json={"blocks": [{"type": "paragraph", "text": plain_text}]}, content_html=html, created_by=uuid.UUID(user.id))
     db.add(version)
