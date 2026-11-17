@@ -195,7 +195,7 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
         except HTTPException:
             db.rollback()
             version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version.id).first()
-    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at}
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "legal_metadata": version.legal_metadata, "backup_status": version.backup_status, "created_at": version.created_at}
 
 @router.put("/{document_id}/versions/{version_id}")
 def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
@@ -244,7 +244,7 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
                 DocumentFormatVersion.document_id == document.id,
             ).first()
     db.refresh(version)
-    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "legal_metadata": version.legal_metadata, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
 
 @router.post("/{document_id}/versions/{version_id}/backup")
 def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
