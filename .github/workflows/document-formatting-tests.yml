@@ -11,6 +11,20 @@ on:
 jobs:
   formatting-unit-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voicedocs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d voicedocs_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       PYTHONPATH: .
       APP_NAME: VoiceDocs CI
@@ -52,5 +66,11 @@ jobs:
         run: alembic history
       - name: Generate PostgreSQL migration SQL
         run: alembic upgrade head --sql > /tmp/voicedocs-migrations.sql
+      - name: Apply migrations to a real PostgreSQL instance
+        run: alembic upgrade head
+      - name: Verify downgrade and re-upgrade
+        run: |
+          alembic downgrade base
+          alembic upgrade head
       - name: Run document formatting tests
         run: pytest -q tests/test_document_formatting_service.py
