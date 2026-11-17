@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+import logging
 import re
 from io import BytesIO
 from html import escape
@@ -13,6 +14,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-3.8-flash"
 MAX_SOURCE_CHARACTERS = 30000
@@ -251,7 +253,14 @@ class DocumentFormattingService:
         except HTTPException:
             raise
         except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError) as exc:
-            # Never log transcript text or provider response bodies.
+            # Log diagnostic metadata only. Never log transcript text, API keys,
+            # request payloads, or provider response bodies.
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.exception(
+                "Gemini document formatting failed (exception_type=%s, provider_status=%s)",
+                type(exc).__name__,
+                status_code,
+            )
             raise HTTPException(status_code=502, detail="Document formatting is temporarily unavailable. Please try again.") from exc
         structured = cls._validate_result(parsed)
         return structured, cls._to_html(structured)
