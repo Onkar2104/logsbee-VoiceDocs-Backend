@@ -1,0 +1,76 @@
+name: Document formatting tests
+
+on:
+  push:
+    branches:
+      - feature/legal-document-formatting
+  pull_request:
+    branches:
+      - feature/legal-document-formatting
+
+jobs:
+  formatting-unit-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voicedocs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d voicedocs_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PYTHONPATH: .
+      APP_NAME: VoiceDocs CI
+      API_V1_PREFIX: /api
+      ENVIRONMENT: test
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/voicedocs_test
+      LOGSBEE_USER_API_BASE_URL: http://localhost:8000/api
+      LOGSBEE_USER_API_TIMEOUT_SECONDS: "5"
+      CORS_ORIGINS: http://localhost:5173
+      GOOGLE_CLIENT_ID: ci-client
+      GOOGLE_CLIENT_SECRET: ci-secret
+      GOOGLE_REDIRECT_URI: http://localhost/callback
+      GOOGLE_TOKEN_ENCRYPTION_KEY: MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      FRONTEND_APP_URL: http://localhost:5173
+      TRANSCRIPTION_PROVIDER: browser
+      WHISPER_MODEL_SIZE: small
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_CPU_THREADS: "1"
+      WHISPER_BATCH_SIZE: "1"
+      INDICCONFORMER_DEVICE: cpu
+      GEMINI_API_KEY: ""
+      DOCUMENT_AI_TIMEOUT_SECONDS: "5"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install alembic fastapi pydantic-settings httpx sqlalchemy "psycopg[binary]" pytest python-docx cryptography pillow
+      - name: Check Python syntax
+        run: python -m compileall -q app alembic/versions
+      - name: Validate Alembic migration graph
+        run: alembic history
+      - name: Generate PostgreSQL migration SQL
+        run: alembic upgrade head --sql > /tmp/voicedocs-migrations.sql
+      - name: Apply migrations to a real PostgreSQL instance
+        run: alembic upgrade head
+      - name: Verify downgrade and re-upgrade
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+      - name: Run document formatting tests
+        run: pytest -q tests/
