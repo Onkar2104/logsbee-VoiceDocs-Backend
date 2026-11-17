@@ -251,3 +251,59 @@ def test_formatting_rejects_malformed_provider_response(monkeypatch):
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("Meeting notes")
     assert error.value.status_code == 502
+
+
+def test_formatted_version_upload_creates_a_separate_docx(monkeypatch):
+    from app.services.google_drive_service import GoogleDriveService
+
+    captured = {}
+
+    class FakeResponse:
+        def json(self):
+            return {
+                "id": "drive-formatted-file-id",
+                "name": "Minutes - Formatted v2.docx",
+                "webViewLink": "https://drive.google.com/file/d/drive-formatted-file-id/view",
+            }
+
+    monkeypatch.setattr(
+        GoogleDriveService,
+        "connection",
+        lambda _db, _user_id: type("Connection", (), {"documents_folder_id": "folder-123"})(),
+    )
+    monkeypatch.setattr(GoogleDriveService, "_access_token", lambda *_args: "access-token")
+    monkeypatch.setattr(GoogleDriveService, "_documents_folder", lambda *_args: "folder-123")
+
+    def fake_drive_request(method, url, token, **kwargs):
+        captured.update(method=method, url=url, token=token, **kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(GoogleDriveService, "_drive_request", fake_drive_request)
+    result = GoogleDriveService.upload_formatted_version(
+        object(), "owner-id", "document-id", 2, "Minutes", "<h1>बैठक</h1>"
+    )
+
+    assert result["id"] == "drive-formatted-file-id"
+    assert captured["method"] == "POST"
+    assert captured["token"] == "access-token"
+    assert captured["params"]["uploadType"] == "multipart"
+    assert b"Minutes - Formatted v2.docx" in captured["content"]
+    assert b"PK" in captured["content"]
+
+
+def test_drive_request_maps_google_api_failure_to_safe_http_error(monkeypatch):
+    import httpx
+    from app.services.google_drive_service import GoogleDriveService
+
+    def fail_request(*_args, **_kwargs):
+        request = httpx.Request("GET", "https://www.googleapis.com/drive/v3/files")
+        response = httpx.Response(503, request=request)
+        raise httpx.HTTPStatusError("provider details", request=request, response=response)
+
+    monkeypatch.setattr(httpx, "request", fail_request)
+    with pytest.raises(HTTPException) as error:
+        GoogleDriveService._drive_request(
+            "GET", "https://www.googleapis.com/drive/v3/files", "token"
+        )
+    assert error.value.status_code == 502
+    assert "provider details" not in error.value.detail
