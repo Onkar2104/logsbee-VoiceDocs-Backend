@@ -51,6 +51,32 @@ def test_sanitizer_removes_javascript_links():
     assert "<a>" in html
 
 
+def test_sanitizer_preserves_small_embedded_images_and_rejects_remote_images():
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/WioAAAAASUVORK5CYII="
+    html, plain = sanitize_editor_html(
+        f'<p>Before</p><img src="data:image/png;base64,{pixel}" alt="sample"><p>After</p>'
+    )
+    assert f'data:image/png;base64,{pixel}' in html
+    assert "Before" in plain and "After" in plain
+
+    remote_html, _ = sanitize_editor_html(
+        '<p>Text</p><img src="https://example.com/image.png">'
+    )
+    assert "<img" not in remote_html
+
+
+def test_docx_backup_embeds_sanitized_image():
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from app.services.docx_converter import html_to_docx
+
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/WioAAAAASUVORK5CYII="
+    output = html_to_docx(f'<p>Image:</p><img src="data:image/png;base64,{pixel}">')
+    with ZipFile(BytesIO(output)) as archive:
+        assert any(name.startswith("word/media/") for name in archive.namelist())
+
+
 def test_sanitizer_rejects_empty_content():
     with pytest.raises(HTTPException) as error:
         sanitize_editor_html("<p><br></p>")
