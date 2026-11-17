@@ -58,8 +58,6 @@ def export_document_docx(
     if not isinstance(content_html, str):
         raise HTTPException(status_code=422, detail="Document content must be HTML text.")
     safe_html, _ = sanitize_editor_html(content_html)
-    from app.services.docx_converter import html_to_docx
-
     try:
         docx_bytes = html_to_docx(safe_html)
     except Exception as exc:
