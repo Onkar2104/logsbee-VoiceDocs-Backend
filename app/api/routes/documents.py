@@ -34,10 +34,17 @@ def _require_format_edit_access(db: Session, document, user):
         raise HTTPException(status_code=403, detail="Edit access has not been approved.")
 
 
+def _lock_document_for_version_write(db: Session, document):
+    """Serialize version-number allocation and active-version updates per document."""
+    model = type(document)
+    return db.query(model).filter(model.id == document.id).with_for_update().one()
+
+
 @router.post("/{document_id}/format")
 def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
+    document = _lock_document_for_version_write(db, document)
     source = DocumentService._with_content(db, document).content
     images = {}
     if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
@@ -89,6 +96,7 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
 def create_document_version(document_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
+    document = _lock_document_for_version_write(db, document)
     try:
         html, plain_text = DocumentFormattingService.sanitize_editor_html(payload.get("content_html"))
     except (AttributeError, TypeError):
