@@ -40,7 +40,7 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     _require_format_edit_access(db, document, user)
     source = DocumentService._with_content(db, document).content
     images = {}
-    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\\b", source, re.IGNORECASE):
+    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
         source, images = DocumentFormattingService.prepare_source_with_image_placeholders(source)
     structured, html = DocumentFormattingService.format_transcript(source)
     if images:
