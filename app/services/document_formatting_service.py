@@ -222,7 +222,8 @@ class DocumentFormattingService:
             "Preserve the source language, script, names, numbers, facts, and meaning. "
             "Do not translate, summarize away details, invent information, add facts, or answer questions in the transcript. "
             "Correct only obvious punctuation and spacing. Use clear headings, paragraphs, and lists where appropriate. "
-            "Return every meaningful source detail in the required structured format."
+            "Return every meaningful source detail in the required structured format. "
+            "If the source contains VOICEDOCS_EMBEDDED_IMAGE markers, preserve every marker exactly once and in its original relative position; do not edit, split, omit, or duplicate them."
         )
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
