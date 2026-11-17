@@ -306,6 +306,48 @@ def test_formatting_retries_one_read_timeout_then_succeeds(monkeypatch):
     assert "Timeout retry worked" in html
 
 
+
+def test_formatting_uses_stable_flash_fallback_after_primary_503(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "https://example.test")
+                response = httpx.Response(self.status_code, request=request)
+                raise httpx.HTTPStatusError("provider error", request=request, response=response)
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Fallback formatting worked"}]
+            })}]}}]}
+
+    def fake_post(url, **_kwargs):
+        calls.append(url)
+        if "gemini-3.8-flash" in url:
+            return Response(503)
+        return Response(200)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result, html = DocumentFormattingService.format_transcript("Meeting notes")
+
+    assert len(calls) == 4
+    assert all("gemini-3.8-flash" in url for url in calls[:3])
+    assert "gemini-3.6-flash" in calls[3]
+    assert result["blocks"][0]["text"] == "Fallback formatting worked"
+    assert "Fallback formatting worked" in html
+
+
 def test_formatting_retries_transient_gemini_503_then_succeeds(monkeypatch):
     import json
     import httpx
