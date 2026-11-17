@@ -222,7 +222,7 @@ class DocumentFormattingService:
         return "".join(parts)
 
     @classmethod
-    def format_transcript(cls, transcript: str) -> tuple[dict, str]:
+    def format_transcript(cls, transcript: str, legal_context: dict | None = None) -> tuple[dict, str]:
         source = (transcript or "").strip()
         if not source:
             raise HTTPException(status_code=400, detail="There is no transcript to format.")
@@ -239,6 +239,18 @@ class DocumentFormattingService:
             "Return every meaningful source detail in the required structured format. "
             "If the source contains VOICEDOCS_EMBEDDED_IMAGE markers, preserve every marker exactly once and in its original relative position; do not edit, split, omit, or duplicate them."
         )
+        if legal_context:
+            system_instruction += (
+                " This is an optional legal-document formatting task for the selected India jurisdiction. "
+                f"The user manually selected category {legal_context['category_label']} and document type "
+                f"{legal_context['document_type_label']}. Organize only the supplied material into a suitable "
+                "document structure with clear headings, paragraphs, and correctly grouped numbered clauses or bullets. "
+                "Do not provide legal advice, research, legal conclusions, or legal validity checks. "
+                "Never invent facts, names, dates, amounts, allegations, statutes, sections, citations, courts, "
+                "case numbers, evidence, or procedural steps. Preserve every supplied legal reference and its wording. "
+                "Use explicit placeholders such as [Client Name], [Date], or [Case Number] only where the document "
+                "clearly requires a missing field; do not infer missing details. Preserve meaning, language, and intent."
+            )
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},
