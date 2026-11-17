@@ -133,6 +133,36 @@ class DocumentFormattingService:
     """Formats a transcript without changing its language or adding new facts."""
 
     @staticmethod
+    def prepare_source_with_image_placeholders(value: str) -> tuple[str, dict[str, str]]:
+        """Replace validated embedded images with stable markers before AI formatting."""
+        safe_html, _ = sanitize_editor_html(value)
+        images = {}
+        index = 0
+
+        def replace_image(match):
+            nonlocal index
+            marker = f"VOICEDOCS_EMBEDDED_IMAGE_{index:04d}"
+            images[marker] = match.group(0)
+            index += 1
+            return f"<p>{marker}</p>"
+
+        marked_html = re.sub(r"<img\\b[^>]*>", replace_image, safe_html, flags=re.IGNORECASE)
+        _, plain_text = sanitize_editor_html(marked_html)
+        return plain_text, images
+
+    @staticmethod
+    def restore_embedded_images(formatted_html: str, images: dict[str, str]) -> str:
+        """Restore each image exactly once at the position retained by the formatter."""
+        for marker, image_html in images.items():
+            if formatted_html.count(marker) != 1:
+                raise HTTPException(
+                    status_code=502,
+                    detail="The formatted document could not preserve an embedded image. Please try again.",
+                )
+            formatted_html = formatted_html.replace(marker, image_html)
+        return formatted_html
+
+    @staticmethod
     def _validate_result(value: object) -> dict:
         if not isinstance(value, dict) or not isinstance(value.get("blocks"), list):
             raise HTTPException(status_code=502, detail="The formatted document could not be validated. Please try again.")
