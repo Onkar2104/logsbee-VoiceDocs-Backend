@@ -66,6 +66,59 @@ def test_sanitizer_preserves_small_embedded_images_and_rejects_remote_images():
     assert "<img" not in remote_html
 
 
+def test_embedded_images_keep_their_original_position_after_formatting(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    pixel = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+    original = f'<p>Before image</p><img src="data:image/png;base64,{pixel}" alt="diagram"><p>After image</p>'
+    source, images = DocumentFormattingService.prepare_source_with_image_placeholders(original)
+
+    assert "Before image" in source
+    assert "After image" in source
+    marker = next(iter(images))
+    assert source.index("Before image") < source.index(marker) < source.index("After image")
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+
+    class FormattedResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "paragraph", "text": "Before image"},
+                    {"type": "paragraph", "text": marker},
+                    {"type": "paragraph", "text": "After image"},
+                ]
+            })}]}}]}
+
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: FormattedResponse())
+    _, formatted_html = DocumentFormattingService.format_transcript(source)
+    restored = DocumentFormattingService.restore_embedded_images(formatted_html, images)
+
+    assert restored.index("Before image") < restored.index("<img") < restored.index("After image")
+    assert f'data:image/png;base64,{pixel}' in restored
+
+
+def test_image_restoration_rejects_missing_or_duplicated_placeholder():
+    image = '<img src="data:image/png;base64,valid">'
+    with pytest.raises(HTTPException) as missing:
+        DocumentFormattingService.restore_embedded_images("<p>Text</p>", {"VOICEDOCS_EMBEDDED_IMAGE_0000": image})
+    assert missing.value.status_code == 502
+
+    with pytest.raises(HTTPException) as duplicated:
+        DocumentFormattingService.restore_embedded_images(
+            "<p>VOICEDOCS_EMBEDDED_IMAGE_0000 VOICEDOCS_EMBEDDED_IMAGE_0000</p>",
+            {"VOICEDOCS_EMBEDDED_IMAGE_0000": image},
+        )
+    assert duplicated.value.status_code == 502
+
+
 def test_docx_backup_embeds_sanitized_image():
     from io import BytesIO
     from zipfile import ZipFile
