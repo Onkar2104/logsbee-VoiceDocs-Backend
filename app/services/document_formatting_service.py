@@ -239,16 +239,30 @@ class DocumentFormattingService:
             },
         }
         try:
-            # Gemini can return 503 during temporary serving-capacity pressure.
-            # Retry only transient server failures, with a short bounded backoff.
+            # Gemini can be slow for longer transcripts. Use an explicit read
+            # timeout and retry one transient timeout without exposing source data.
             response = None
+            timeout = httpx.Timeout(
+                connect=15.0,
+                read=settings.document_ai_timeout_seconds,
+                write=30.0,
+                pool=15.0,
+            )
+            timeout_retries = 0
             for attempt in range(3):
-                response = httpx.post(
-                    url,
-                    headers={"x-goog-api-key": settings.gemini_api_key},
-                    json=payload,
-                    timeout=settings.document_ai_timeout_seconds,
-                )
+                try:
+                    response = httpx.post(
+                        url,
+                        headers={"x-goog-api-key": settings.gemini_api_key},
+                        json=payload,
+                        timeout=timeout,
+                    )
+                except httpx.TimeoutException:
+                    if timeout_retries >= 1:
+                        raise
+                    timeout_retries += 1
+                    time.sleep(2.0)
+                    continue
                 if response.status_code == 429:
                     raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
                 if response.status_code not in {500, 502, 503, 504} or attempt == 2:
