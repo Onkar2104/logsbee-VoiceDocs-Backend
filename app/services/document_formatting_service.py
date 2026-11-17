@@ -146,7 +146,7 @@ class DocumentFormattingService:
             index += 1
             return f"<p>{marker}</p>"
 
-        marked_html = re.sub(r"<img\\b[^>]*>", replace_image, safe_html, flags=re.IGNORECASE)
+        marked_html = re.sub(r"<img\b[^>]*>", replace_image, safe_html, flags=re.IGNORECASE)
         _, plain_text = sanitize_editor_html(marked_html)
         return plain_text, images
 
