@@ -5,7 +5,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class DocumentCreate(BaseModel):
+class DocumentMetadata(BaseModel):
+    formatting_mode: Literal["general", "legal"] = "general"
+    jurisdiction: str | None = None
+    legal_category: str | None = None
+    document_type: str | None = None
+
+
+class DocumentCreate(DocumentMetadata):
     title: str = Field(min_length=1, max_length=255)
     content: str = ""
 
@@ -13,6 +20,10 @@ class DocumentCreate(BaseModel):
 class DocumentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     content: str | None = None
+    formatting_mode: Literal["general", "legal"] | None = None
+    jurisdiction: str | None = None
+    legal_category: str | None = None
+    document_type: str | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -21,6 +32,10 @@ class DocumentResponse(BaseModel):
     id: uuid.UUID
     title: str
     content: str
+    formatting_mode: str = "general"
+    jurisdiction: str | None = None
+    legal_category: str | None = None
+    document_type: str | None = None
     owner_user_id: uuid.UUID
     account_id: uuid.UUID
     created_at: datetime
