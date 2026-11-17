@@ -189,3 +189,64 @@ def test_super_admin_role_is_not_treated_as_account_admin():
     document = SimpleNamespace(owner_user_id=uuid4())
     super_admin = SimpleNamespace(id=str(uuid4()), role=SimpleNamespace(name="Super admin"))
     assert DocumentService._can_manage(document, super_admin) is False
+
+
+def test_formatting_requires_server_api_key(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("Meeting notes")
+    assert error.value.status_code == 503
+
+
+def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+
+    class RateLimitedResponse:
+        status_code = 429
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: RateLimitedResponse())
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("Meeting notes")
+    assert error.value.status_code == 429
+
+
+def test_formatting_handles_provider_timeout_without_exposing_source(monkeypatch):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+
+    def timeout(*args, **kwargs):
+        raise httpx.TimeoutException("timeout")
+
+    monkeypatch.setattr(httpx, "post", timeout)
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("private transcript text")
+    assert error.value.status_code == 502
+    assert "private transcript text" not in error.value.detail
+
+
+def test_formatting_rejects_malformed_provider_response(monkeypatch):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+
+    class InvalidResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": []}
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: InvalidResponse())
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("Meeting notes")
+    assert error.value.status_code == 502
