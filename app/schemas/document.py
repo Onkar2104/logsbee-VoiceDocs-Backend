@@ -31,6 +31,7 @@ class DocumentResponse(BaseModel):
     audio_backup_status: str = "backed_up"
     shared_by_user_id: uuid.UUID | None = None
     shared_by_name: str | None = None
+    can_edit: bool = False
 
 
 class DocumentShareCreate(BaseModel):
