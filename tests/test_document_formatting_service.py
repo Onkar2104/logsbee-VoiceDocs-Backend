@@ -57,6 +57,7 @@ def test_sanitizer_preserves_small_embedded_images_and_rejects_remote_images():
         f'<p>Before</p><img src="data:image/png;base64,{pixel}" alt="sample"><p>After</p>'
     )
     assert f'data:image/png;base64,{pixel}' in html
+    assert "</img>" not in html
     assert "Before" in plain and "After" in plain
 
     remote_html, _ = sanitize_editor_html(
