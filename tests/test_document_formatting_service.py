@@ -307,3 +307,46 @@ def test_drive_request_maps_google_api_failure_to_safe_http_error(monkeypatch):
         )
     assert error.value.status_code == 502
     assert "provider details" not in error.value.detail
+
+
+def test_replacing_formatted_drive_version_updates_existing_docx(monkeypatch):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from app.services.google_drive_service import GoogleDriveService
+
+    captured = {}
+
+    class FakeResponse:
+        def json(self):
+            return {
+                "id": "existing-drive-file-id",
+                "name": "Minutes - Formatted v2.docx",
+                "webViewLink": "https://drive.google.com/file/d/existing-drive-file-id/view",
+            }
+
+    monkeypatch.setattr(
+        GoogleDriveService,
+        "connection",
+        lambda *_args: type("Connection", (), {"documents_folder_id": "folder-123"})(),
+    )
+    monkeypatch.setattr(GoogleDriveService, "_access_token", lambda *_args: "access-token")
+
+    def fake_drive_request(method, url, token, **kwargs):
+        captured.update(method=method, url=url, token=token, **kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(GoogleDriveService, "_drive_request", fake_drive_request)
+    result = GoogleDriveService.update_drive_document(
+        object(), "owner-id", "existing-drive-file-id", "Minutes - Formatted v2",
+        "<h1>बैठक</h1><p>Updated notes</p>",
+    )
+
+    assert result["id"] == "existing-drive-file-id"
+    assert captured["method"] == "PATCH"
+    assert captured["url"].endswith("/files/existing-drive-file-id")
+    assert captured["params"]["uploadType"] == "multipart"
+    assert b"Updated notes" not in captured["content"]  # Content is inside the DOCX ZIP.
+    with ZipFile(BytesIO(captured["content"].split(b"PK", 1)[0] + b"PK" + captured["content"].split(b"PK", 1)[1])) as archive:
+        assert "word/document.xml" in archive.namelist()
+        assert b"Updated notes" in archive.read("word/document.xml")
