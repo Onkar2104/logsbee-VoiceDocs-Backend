@@ -579,3 +579,84 @@ def test_replacing_formatted_drive_version_updates_existing_docx(monkeypatch):
     with ZipFile(BytesIO(captured["content"].split(b"PK", 1)[0] + b"PK" + captured["content"].split(b"PK", 1)[1])) as archive:
         assert "word/document.xml" in archive.namelist()
         assert b"Updated notes" in archive.read("word/document.xml")
+
+
+def test_gemini_primary_timeouts_attempt_fallback_model(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    import app.services.document_formatting_service as formatting_module
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(formatting_module.time, "sleep", lambda *_args: None)
+
+    class FormattedResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Formatted safely"}]
+            })}]}}]}
+
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        if len(calls) <= 2:
+            raise httpx.ReadTimeout("temporary primary timeout")
+        return FormattedResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    structured, html = DocumentFormattingService.format_transcript("Original text")
+
+    assert len(calls) == 3
+    assert "gemini-3.8-flash:generateContent" in calls[0]
+    assert "gemini-3.8-flash:generateContent" in calls[1]
+    assert "gemini-3.6-flash:generateContent" in calls[2]
+    assert structured["blocks"][0]["text"] == "Formatted safely"
+    assert "Formatted safely" in html
+
+
+def test_gemini_primary_service_unavailable_retries_then_uses_fallback(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    import app.services.document_formatting_service as formatting_module
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(formatting_module.time, "sleep", lambda *_args: None)
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "temporary service error",
+                    request=httpx.Request("POST", "https://example.test"),
+                    response=httpx.Response(self.status_code),
+                )
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Fallback worked"}]
+            })}]}}]}
+
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return Response(503 if len(calls) <= 2 else 200)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    structured, _ = DocumentFormattingService.format_transcript("Original text")
+
+    assert len(calls) == 3
+    assert "gemini-3.6-flash:generateContent" in calls[-1]
+    assert structured["blocks"][0]["text"] == "Fallback worked"
