@@ -292,6 +292,8 @@ class DocumentFormattingService:
                     json=payload,
                     timeout=timeout,
                 )
+                if response.status_code == 429:
+                    raise HTTPException(status_code=429, detail="Document formatting is temporarily busy. Please try again later.")
 
             response.raise_for_status()
             data = response.json()
