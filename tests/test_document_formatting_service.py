@@ -422,7 +422,8 @@ def test_formatting_returns_retryable_503_after_transient_retries(monkeypatch):
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("Meeting notes")
 
-    assert calls["count"] == 3
+    # Three primary-model attempts plus one fallback-model attempt.
+    assert calls["count"] == 4
     assert error.value.status_code == 503
     assert "temporarily overloaded" in error.value.detail
 
