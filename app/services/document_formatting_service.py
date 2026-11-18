@@ -28,14 +28,14 @@ def _split_legal_source_segments(source: str) -> list[str]:
     """Split legal source into traceable sentence/line units without splitting numeric dates."""
     return [
         part.strip()
-        for part in re.split(r"(?<=[.!?।॥])\\s+|\\r?\\n+", source)
+        for part in re.split(r"(?<=[.!?।॥])\s+|\r?\n+", source)
         if part.strip()
     ]
 
 
 def _normalize_legal_text(value: str) -> str:
     """Ignore layout punctuation/spacing while preserving every Unicode letter, mark and digit."""
-    value = unicodedata.normalize("NFC", re.sub(r"\\[[^\\]]{1,160}\\]", "", value))
+    value = unicodedata.normalize("NFC", re.sub(r"\[[^\]]{1,160}\]", "", value))
     return "".join(
         character
         for character in value
@@ -45,7 +45,7 @@ def _normalize_legal_text(value: str) -> str:
 
 def _legal_numeric_tokens(value: str) -> Counter:
     """Capture numeric facts (including Indian-script digits and formatted dates/amounts)."""
-    return Counter(re.findall(r"\\d+(?:[.,:/-]\\d+)*", value))
+    return Counter(re.findall(r"\d+(?:[.,:/-]\d+)*", value))
 
 OUTPUT_SCHEMA = {
     "type": "OBJECT",
@@ -247,7 +247,7 @@ class DocumentFormattingService:
                     detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
                 )
             numeric_audit_text = "\n".join(
-                re.sub(r"^\\s*\\d{1,3}[.)]\\s+", "", block["text"])
+                re.sub(r"^\s*\d{1,3}[.)]\s+", "", block["text"])
                 if block["type"] == "heading" else block["text"]
                 for block in clean
             )
