@@ -96,17 +96,17 @@ LEGAL_CATEGORIES = [
 # Document-type outlines are drafting structures, not prescribed or universally valid court forms.
 DOCUMENT_TYPE_SECTIONS = {
     "divorce-petition-draft": [
-        "Court heading and case particulars",
-        "Petitioner particulars",
-        "Respondent particulars",
-        "Marriage particulars",
-        "Chronology of matrimonial facts",
-        "Grounds relied upon, only as alleged and supplied by the user",
-        "Children, maintenance or custody details, if supplied",
-        "Prior proceedings or reconciliation details, if supplied",
-        "Reliefs or prayers sought",
-        "Documents or annexures actually mentioned",
-        "Verification and signature placeholders"
+        "Court name and case particulars (use placeholders unless supplied; do not infer the court)",
+        "Petitioner particulars (retain only details supplied; placeholders for missing fields)",
+        "Respondent particulars (retain only details supplied; placeholders for missing fields)",
+        "Marriage particulars (date, place and other details only as supplied)",
+        "Chronological statement of all matrimonial facts, preserving each source statement",
+        "Grounds expressly stated by the user (do not infer or select a statutory ground)",
+        "Children, maintenance, custody or prior proceedings only when mentioned in the source",
+        "Reconciliation attempts and separation details only as supplied",
+        "Each prayer or relief requested, retained as a separate clause without adding remedies",
+        "Documents or annexures actually mentioned by the user",
+        "Place, date, signature and verification fields as uncompleted placeholders only where relevant"
     ],
     "maintenance-application": [
         "Forum and case heading",
