@@ -241,11 +241,6 @@ class DocumentFormattingService:
                 for block in clean
                 if block["type"] in {"paragraph", "bullet", "number", "quote"}
             )
-            if _normalize_legal_text(factual_text) != _normalize_legal_text(required_source_text):
-                raise HTTPException(
-                    status_code=502,
-                    detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
-                )
             numeric_audit_text = "\n".join(
                 re.sub(r"^\s*\d{1,3}[.)]\s+", "", block["text"])
                 if block["type"] == "heading" else block["text"]
@@ -255,6 +250,11 @@ class DocumentFormattingService:
                 raise HTTPException(
                     status_code=502,
                     detail="The legal draft changed or added a date, number, or amount. Please retry formatting or keep the original text.",
+                )
+            if _normalize_legal_text(factual_text) != _normalize_legal_text(required_source_text):
+                raise HTTPException(
+                    status_code=502,
+                    detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
                 )
         return {"blocks": clean}
 

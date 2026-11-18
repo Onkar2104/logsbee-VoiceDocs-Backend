@@ -701,8 +701,8 @@ def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeyp
     assert "Divorce Petition Draft" in prompt
     assert "Petitioner particulars" in prompt
     assert "Respondent particulars" in prompt
-    assert "Chronology of matrimonial facts" in prompt
-    assert "Reliefs or prayers sought" in prompt
+    assert "Chronological statement of all matrimonial facts" in prompt
+    assert "Each prayer or relief requested" in prompt
     assert "MUST transform the source into that document type" in prompt
     assert "Never invent facts" in prompt
 
@@ -754,8 +754,8 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
     assert "each separate prayer" in instruction
     assert "never collapse multiple reliefs" in instruction
     assert "silently cross-check it against the source" in instruction
-    assert "Chronology of matrimonial facts" in instruction
-    assert "Reliefs or prayers sought" in instruction
+    assert "Chronological statement of all matrimonial facts" in instruction
+    assert "Each prayer or relief requested" in instruction
     assert source in captured["payload"]["contents"][0]["parts"][0]["text"]
     assert "[SOURCE_SEGMENT_0001]" in captured["payload"]["contents"][0]["parts"][0]["text"]
 
@@ -844,7 +844,7 @@ def test_general_docx_export_keeps_default_layout():
 def test_legal_source_is_split_into_sentence_level_traceable_segments():
     from app.services.document_formatting_service import _split_legal_source_segments
 
-    source = "विवाह 15.02.2018 रोजी झाला. पहिली घटना १२ जानेवारीला घडली.\\nदुसरी घटना नंतर घडली."
+    source = "विवाह 15.02.2018 रोजी झाला. पहिली घटना १२ जानेवारीला घडली.\nदुसरी घटना नंतर घडली."
     assert _split_legal_source_segments(source) == [
         "विवाह 15.02.2018 रोजी झाला.",
         "पहिली घटना १२ जानेवारीला घडली.",
