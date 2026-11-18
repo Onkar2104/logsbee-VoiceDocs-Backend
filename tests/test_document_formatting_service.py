@@ -831,5 +831,7 @@ def test_general_docx_export_keeps_default_layout():
     output = html_to_docx("<p>General document paragraph.</p>")
     document = Document(BytesIO(output))
 
+    default_document = Document()
     assert document.paragraphs[0].alignment != WD_ALIGN_PARAGRAPH.JUSTIFY
-    assert document.sections[0].left_margin.inches < 1.25
+    assert document.sections[0].left_margin == default_document.sections[0].left_margin
+    assert document.paragraphs[0].paragraph_format.line_spacing is None
