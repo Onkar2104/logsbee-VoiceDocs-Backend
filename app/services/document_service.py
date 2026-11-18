@@ -446,8 +446,6 @@ class DocumentService:
     @classmethod
     def list_deleted_versions(cls, db: Session, document_id: uuid.UUID, user):
         document = cls._get_account_document(db, document_id, user, include_deleted=True)
-        if not document.is_deleted:
-            raise HTTPException(status_code=409, detail="Version Trash is available for documents in the active workspace.")
         versions = db.query(DocumentFormatVersion).filter(
             DocumentFormatVersion.document_id == document.id,
             DocumentFormatVersion.is_deleted.is_(True),
