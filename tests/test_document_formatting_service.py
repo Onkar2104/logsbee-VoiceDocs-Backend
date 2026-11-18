@@ -1212,5 +1212,5 @@ def test_divorce_petition_fallback_adds_structure_without_changing_marathi_sourc
     assert "म्हणून मा. न्यायालयास विनंती आहे की" in joined_prayer[0]["text"]
     assert joined_prayer[0]["source_segment_ids"] == [
         f"SOURCE_SEGMENT_{index:04d}"
-        for index in range(17, 19)
+        for index in range(19, 21)
     ]
