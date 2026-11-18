@@ -1204,3 +1204,13 @@ def test_divorce_petition_fallback_adds_structure_without_changing_marathi_sourc
     assert "विवाहाचा तपशील" in headings
     assert "प्रार्थना" in headings
     assert any(block["type"] == "number" for block in blocks)
+    joined_prayer = [
+        block for block in blocks
+        if block["type"] == "number" and "म्हणून मा." in block["text"]
+    ]
+    assert len(joined_prayer) == 1
+    assert "म्हणून मा. न्यायालयास विनंती आहे की" in joined_prayer[0]["text"]
+    assert joined_prayer[0]["source_segment_ids"] == [
+        f"SOURCE_SEGMENT_{index:04d}"
+        for index in range(17, 19)
+    ]
