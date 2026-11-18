@@ -96,6 +96,7 @@ def backup_pending_files(
     from app.models.google_drive import AudioRecording
     pending_audio = db.query(AudioRecording).filter(
         AudioRecording.user_id == user_uuid,
+        AudioRecording.is_deleted.is_(False),
         AudioRecording.backup_status != "backed_up",
     ).order_by(AudioRecording.created_at.asc()).all()
 
@@ -147,6 +148,34 @@ def list_recordings(
     }
 
 
+@router.get("/recordings/trash")
+def list_audio_trash(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.list_audio_trash(db, user, page, page_size)
+
+
+@router.post("/recordings/{recording_id}/restore")
+def restore_audio_recording(
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.restore_recording(db, recording_id, user)
+
+
+@router.delete("/recordings/{recording_id}/permanent")
+def permanently_delete_audio_recording(
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.permanently_delete_recording(db, recording_id, user)
+
+
 @router.post("/recordings/{recording_id}/backup")
 def backup_recording(
     recording_id: uuid.UUID,
@@ -177,8 +206,8 @@ def delete_recording(
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
-    GoogleDriveService.delete(db, user.id, recording_id)
-    return {"message": "Recording deleted from Google Drive and VoiceDocs."}
+    GoogleDriveService.trash_recording(db, recording_id, user)
+    return {"message": "Recording moved to Trash. It can be restored for 30 days."}
 
 
 
@@ -203,7 +232,7 @@ def upload_recording(
 
     if document_id:
         linked_document = db.get(Document, document_id)
-        if not linked_document or str(linked_document.owner_user_id) != user.id:
+        if not linked_document or linked_document.is_deleted or str(linked_document.owner_user_id) != user.id:
             raise HTTPException(status_code=403, detail="Audio can only be attached to a document you own.")
 
     filename = file.filename or "browser-recording.webm"

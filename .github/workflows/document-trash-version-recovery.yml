@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/document-trash-version-recovery
+      - feature/trash-audio-30-day-retention
   pull_request:
     branches:
       - feature/document-trash-version-recovery
