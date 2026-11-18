@@ -97,9 +97,12 @@ LEGAL_CATEGORIES = [
 DOCUMENT_TYPE_SECTIONS = {
     "divorce-petition-draft": [
         "Centered court caption and petition/case number line (use supplied details or clearly marked placeholders)",
-        "Petitioner and respondent particulars in separate blocks, with विरुद्ध between the parties",
+        "Petitioner particulars in a separate block, retaining supplied details and using placeholders for missing administrative fields",
+        "Respondent particulars in a separate block, retaining supplied details and using placeholders for missing administrative fields",
+        "Petitioner and respondent particulars must appear in separate blocks, with विरुद्ध between the parties",
         "Subject line identifying the requested divorce petition without adding a statutory basis",
         "Formal court salutation as structural wording only",
+        "Chronological statement of all matrimonial facts, preserving every source sentence verbatim and in its original order",
         "Numbered sections for marriage particulars, matrimonial differences, reconciliation efforts and separation, only where supported by source facts",
         "All factual paragraphs retained verbatim, in the original order, under clear descriptive headings",
         "Grounds expressly stated by the user only; never infer a statutory ground",
