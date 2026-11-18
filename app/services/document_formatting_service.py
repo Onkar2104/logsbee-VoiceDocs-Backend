@@ -240,16 +240,28 @@ class DocumentFormattingService:
             "If the source contains VOICEDOCS_EMBEDDED_IMAGE markers, preserve every marker exactly once and in its original relative position; do not edit, split, omit, or duplicate them."
         )
         if legal_context:
+            sections = legal_context.get("format_sections") or []
+            section_outline = "\\n".join(f"- {section}" for section in sections)
             system_instruction += (
-                " This is an optional legal-document formatting task for the selected India jurisdiction. "
-                f"The user manually selected category {legal_context['category_label']} and document type "
-                f"{legal_context['document_type_label']}. Organize only the supplied material into a suitable "
-                "document structure with clear headings, paragraphs, and correctly grouped numbered clauses or bullets. "
-                "Do not provide legal advice, research, legal conclusions, or legal validity checks. "
+                " This is a document-type-specific legal drafting format task for the manually selected India jurisdiction. "
+                f"The selected legal category is {legal_context['category_label']}; the exact selected document type is "
+                f"{legal_context['document_type_label']}. You MUST transform the source into that document type, "
+                "not merely apply generic legal styling and not leave the text as meeting notes or an unstructured narrative. "
+                "Use the following document-specific section outline as the target structure, in this order where applicable:\\n"
+                f"{section_outline}\\n"
+                "Create clear section headings and organize the supplied facts under the appropriate sections. "
+                "Include only sections that are relevant to this document type and source; do not fill sections with invented content. "
+                "When a required field is missing, retain the section and insert a concise bracketed placeholder such as "
+                "[Petitioner Name], [Respondent Name], [Court Name], [Case Number], [Date], or [Address]. "
+                "For a petition or application, produce a coherent draft with appropriate introductory particulars, "
+                "numbered factual paragraphs/grounds where suitable, a clearly separated prayer or relief section when applicable, "
+                "and verification/signature placeholders when appropriate. For notices, complaints, agreements, replies, "
+                "representations, affidavits, or claims, follow the selected type's outline rather than petition conventions. "
+                "Do not provide legal advice, legal research, legal conclusions, or legal validity checks. "
                 "Never invent facts, names, dates, amounts, allegations, statutes, sections, citations, courts, "
-                "case numbers, evidence, or procedural steps. Preserve every supplied legal reference and its wording. "
-                "Use explicit placeholders such as [Client Name], [Date], or [Case Number] only where the document "
-                "clearly requires a missing field; do not infer missing details. Preserve meaning, language, and intent."
+                "case numbers, evidence, procedural steps, or contractual terms. Preserve every supplied legal reference and its wording. "
+                "Do not state that a legal requirement is mandatory unless the source itself says so. "
+                "Preserve the source language, script, meaning, and intent."
             )
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
