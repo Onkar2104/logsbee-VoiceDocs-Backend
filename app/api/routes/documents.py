@@ -369,7 +369,7 @@ def permanently_delete_document(document_id: uuid.UUID, db: Session = Depends(ge
     return DocumentService.permanently_delete_document(db, document_id, user)
 
 
-@router.get("/{document_id}/versions/trash")
+@router.get("/{document_id}/version-trash")
 def list_deleted_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     return DocumentService.list_deleted_versions(db, document_id, user)
 
