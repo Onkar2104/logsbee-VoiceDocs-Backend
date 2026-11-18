@@ -919,3 +919,74 @@ def test_legal_output_accepts_source_text_with_added_structural_headings_and_pla
         required_source_text=source,
     )
     assert len(result["blocks"]) == 4
+
+
+
+def test_divorce_petition_prompt_targets_gemini_style_structure_without_legal_assumptions(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "title", "text": "विवाह विच्छेदासाठी अर्ज"},
+                    {"type": "heading", "text": "अर्जदार"},
+                    {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+                ]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured["payload"] = kwargs["json"]
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    DocumentFormattingService.format_transcript(
+        "राहुल शर्मा पुणे येथे राहतो.", legal_context=context
+    )
+
+    instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
+    required_phrases = [
+        "centered court caption",
+        "petitioner and respondent particulars in separate blocks",
+        "distinct विनंती (Prayer) section",
+        "सत्यापन (Verification)",
+        "[विवाह याचिका क्रमांक]",
+        "uncompleted template only",
+        "never assert that the applicant swears",
+        "do not assert territorial jurisdiction",
+        "preserve every source factual sentence verbatim",
+        "Never add a prayer for costs",
+        "Never assume the applicable personal law",
+    ]
+    for phrase in required_phrases:
+        assert phrase in instruction
+    assert "Hindu Marriage Act" not in instruction
+
+
+def test_divorce_petition_catalog_requests_full_formal_structure():
+    from app.services.legal_document_catalog import get_legal_context
+
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    outline = " ".join(context["format_sections"])
+    for phrase in [
+        "Centered court caption",
+        "separate blocks",
+        "Subject line",
+        "Numbered sections",
+        "distinct prayer section",
+        "Verification section",
+    ]:
+        assert phrase.lower() in outline.lower()
