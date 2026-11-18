@@ -51,3 +51,26 @@ def test_legal_document_requires_valid_complete_metadata():
 def test_unknown_formatting_mode_is_rejected():
     with pytest.raises(ValueError):
         validate_document_metadata("automatic", None, None, None)
+
+
+def test_each_selectable_document_type_has_a_specific_format_outline():
+    catalog = get_legal_catalog()
+    for category in catalog["categories"]:
+        for document_type in category["document_types"]:
+            context = get_legal_context("IN", category["id"], document_type["id"])
+            assert context["format_sections"], document_type["id"]
+            assert context["document_type_label"] == document_type["label"]
+
+
+def test_divorce_petition_outline_uses_petition_specific_sections():
+    context = get_legal_context(
+        "IN", "family-matrimonial-law", "divorce-petition-draft"
+    )
+    outline = context["format_sections"]
+
+    assert any("Petitioner" in section for section in outline)
+    assert any("Respondent" in section for section in outline)
+    assert any("matrimonial facts" in section for section in outline)
+    assert any("Grounds" in section for section in outline)
+    assert any("Reliefs or prayers" in section for section in outline)
+    assert any("Verification" in section for section in outline)
