@@ -322,9 +322,9 @@ class DocumentFormattingService:
                 f"[{segment['id']}]\n{segment['text']}" for segment in source_segments
             )
             user_source = (
-                "ORIGINAL SOURCE (verbatim; preserve all wording and spacing):\\n"
+                "ORIGINAL SOURCE (verbatim; preserve all wording and spacing):\n"
                 + source
-                + "\\n\\nSOURCE SEGMENTS (tracking labels only):\\n"
+                + "\n\nSOURCE SEGMENTS (tracking labels only):\n"
                 + tracked_source
             )
             sections = legal_context.get("format_sections") or []
