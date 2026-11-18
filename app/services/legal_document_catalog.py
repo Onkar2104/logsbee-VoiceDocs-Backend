@@ -96,17 +96,18 @@ LEGAL_CATEGORIES = [
 # Document-type outlines are drafting structures, not prescribed or universally valid court forms.
 DOCUMENT_TYPE_SECTIONS = {
     "divorce-petition-draft": [
-        "Court name and case particulars (use placeholders unless supplied; do not infer the court)",
-        "Petitioner particulars (retain only details supplied; placeholders for missing fields)",
-        "Respondent particulars (retain only details supplied; placeholders for missing fields)",
-        "Marriage particulars (date, place and other details only as supplied)",
-        "Chronological statement of all matrimonial facts, preserving each source statement",
-        "Grounds expressly stated by the user (do not infer or select a statutory ground)",
-        "Children, maintenance, custody or prior proceedings only when mentioned in the source",
-        "Reconciliation attempts and separation details only as supplied",
-        "Each prayer or relief requested, retained as a separate clause without adding remedies",
-        "Documents or annexures actually mentioned by the user",
-        "Place, date, signature and verification fields as uncompleted placeholders only where relevant"
+        "Centered court caption and petition/case number line (use supplied details or clearly marked placeholders)",
+        "Petitioner and respondent particulars in separate blocks, with विरुद्ध between the parties",
+        "Subject line identifying the requested divorce petition without adding a statutory basis",
+        "Formal court salutation as structural wording only",
+        "Numbered sections for marriage particulars, matrimonial differences, reconciliation efforts and separation, only where supported by source facts",
+        "All factual paragraphs retained verbatim, in the original order, under clear descriptive headings",
+        "Grounds expressly stated by the user only; never infer a statutory ground",
+        "Children, maintenance, custody, prior proceedings and jurisdiction only when established by supplied facts; otherwise use an uncompleted professional-review placeholder if the section is necessary",
+        "Documents and evidence actually mentioned by the user, without inventing an annexure list",
+        "A distinct prayer section containing only the relief requested in the source",
+        "Place, date, applicant signature and advocate particulars as explicit uncompleted placeholders when absent",
+        "Verification section only as an uncompleted placeholder for legally appropriate wording to be completed and checked by a qualified professional"
     ],
     "maintenance-application": [
         "Forum and case heading",
