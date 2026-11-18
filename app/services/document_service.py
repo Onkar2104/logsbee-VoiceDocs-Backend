@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentShare
+from app.models.document_format_version import DocumentFormatVersion
 from app.models.google_drive import AudioRecording
 from app.models.user_settings import UserSettings
 from app.repositories.document_repository import DocumentRepository
@@ -343,15 +344,183 @@ class DocumentService:
         return cls._with_content(db, document)
 
     @classmethod
-    def delete(cls, db: Session, document_id: uuid.UUID, user):
-        document = cls._get_visible_document(db, document_id, user)
+    def _get_account_document(cls, db: Session, document_id: uuid.UUID, user, include_deleted: bool = False):
+        account_id = cls._require_account(user)
+        query = db.query(Document).filter(Document.id == document_id, Document.account_id == account_id)
+        if not include_deleted:
+            query = query.filter(Document.is_deleted.is_(False))
+        document = query.first()
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
         if not cls._can_manage(document, user):
-            raise HTTPException(status_code=403, detail="Only the document owner or Account Admin can delete it.")
+            raise HTTPException(status_code=403, detail="Only the document owner or Account Admin can manage this document.")
+        return document
+
+    @classmethod
+    def _delete_document_drive_backups(cls, db: Session, document: Document) -> list[str]:
+        """Delete linked Drive files, retaining failed IDs for a safe retry."""
+        failures = []
+        versions = db.query(DocumentFormatVersion).filter(
+            DocumentFormatVersion.document_id == document.id
+        ).all()
+        recordings = db.query(AudioRecording).filter(AudioRecording.document_id == document.id).all()
+        targets = [(document, document.drive_file_id)]
+        targets.extend((version, version.drive_file_id) for version in versions)
+        targets.extend((recording, recording.drive_file_id) for recording in recordings)
+        for row, file_id in targets:
+            if not file_id:
+                continue
+            owner_id = str(document.owner_user_id) if row is document or isinstance(row, DocumentFormatVersion) else str(row.user_id)
+            try:
+                GoogleDriveService.delete_drive_file(db, owner_id, file_id)
+                row.drive_file_id = None
+                if hasattr(row, "drive_web_view_link"):
+                    row.drive_web_view_link = None
+                if hasattr(row, "backup_status"):
+                    row.backup_status = "not_backed_up"
+            except HTTPException:
+                failures.append(file_id)
+        db.commit()
+        return failures
+
+    @classmethod
+    def delete(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user)
         document.is_deleted = True
         document.deleted_at = datetime.now(timezone.utc)
         document.deleted_by = uuid.UUID(user.id)
-        DocumentRepository.commit(db)
-        return {"message": "Document deleted successfully."}
+        db.commit()
+        failures = cls._delete_document_drive_backups(db, document)
+        return {
+            "message": "Document moved to Trash.",
+            "drive_cleanup_pending": bool(failures),
+            "pending_drive_files": len(failures),
+        }
+
+    @classmethod
+    def list_trash(cls, db: Session, user, page: int = 1, page_size: int = 10):
+        account_id = cls._require_account(user)
+        query = db.query(Document).filter(Document.account_id == account_id, Document.is_deleted.is_(True))
+        if not cls._is_admin(user):
+            query = query.filter(Document.owner_user_id == uuid.UUID(user.id))
+        total = query.count()
+        items = query.order_by(Document.deleted_at.desc(), Document.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        pages = (total + page_size - 1) // page_size
+        return {
+            "items": [{
+                "id": item.id, "title": item.title, "owner_user_id": item.owner_user_id,
+                "deleted_at": item.deleted_at, "deleted_by": item.deleted_by,
+                "drive_cleanup_pending": bool(
+                    item.drive_file_id
+                    or db.query(DocumentFormatVersion.id).filter(DocumentFormatVersion.document_id == item.id, DocumentFormatVersion.drive_file_id.isnot(None)).first()
+                    or db.query(AudioRecording.id).filter(AudioRecording.document_id == item.id, AudioRecording.drive_file_id.isnot(None)).first()
+                ),
+                "created_at": item.created_at, "updated_at": item.updated_at,
+            } for item in items],
+            "pagination": {
+                "page": page, "page_size": page_size, "total_records": total,
+                "total_pages": pages, "has_next": page < pages, "has_previous": page > 1,
+            },
+        }
+
+    @classmethod
+    def restore_document(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user, include_deleted=True)
+        if not document.is_deleted:
+            raise HTTPException(status_code=409, detail="Document is not in Trash.")
+        document.is_deleted = False
+        document.deleted_at = None
+        document.deleted_by = None
+        document.backup_status = "not_backed_up" if not document.drive_file_id else document.backup_status
+        db.commit()
+        return {"message": "Document restored successfully.", "id": document.id}
+
+    @classmethod
+    def permanently_delete_document(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user, include_deleted=True)
+        if not document.is_deleted:
+            raise HTTPException(status_code=409, detail="Move the document to Trash before permanently deleting it.")
+        failures = cls._delete_document_drive_backups(db, document)
+        if failures:
+            raise HTTPException(status_code=502, detail=f"{len(failures)} Google Drive backup(s) could not be deleted. Retry permanent deletion after reconnecting Google Drive.")
+        db.query(AudioRecording).filter(AudioRecording.document_id == document.id).delete(synchronize_session=False)
+        document.active_format_version_id = None
+        db.flush()
+        db.delete(document)
+        db.commit()
+        return {"message": "Document permanently deleted."}
+
+    @classmethod
+    def list_deleted_versions(cls, db: Session, document_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user, include_deleted=True)
+        versions = db.query(DocumentFormatVersion).filter(
+            DocumentFormatVersion.document_id == document.id,
+            DocumentFormatVersion.is_deleted.is_(True),
+        ).order_by(DocumentFormatVersion.deleted_at.desc()).all()
+        return {"items": [{
+            "id": item.id, "version_number": item.version_number,
+            "deleted_at": item.deleted_at, "created_at": item.created_at,
+        } for item in versions]}
+
+    @classmethod
+    def delete_version(cls, db: Session, document_id: uuid.UUID, version_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user)
+        version = db.query(DocumentFormatVersion).filter(
+            DocumentFormatVersion.id == version_id,
+            DocumentFormatVersion.document_id == document.id,
+            DocumentFormatVersion.is_deleted.is_(False),
+        ).first()
+        if version is None:
+            raise HTTPException(status_code=404, detail="Formatted version not found.")
+        if document.active_format_version_id == version.id:
+            raise HTTPException(status_code=409, detail="Select another formatted version before moving the active version to Trash.")
+        version.is_deleted = True
+        version.deleted_at = datetime.now(timezone.utc)
+        version.deleted_by = uuid.UUID(user.id)
+        if version.drive_file_id:
+            try:
+                GoogleDriveService.delete_drive_file(db, str(document.owner_user_id), version.drive_file_id)
+                version.drive_file_id = None
+                version.drive_web_view_link = None
+                version.backup_status = "not_backed_up"
+            except HTTPException:
+                db.commit()
+                raise HTTPException(status_code=502, detail="Version moved to Trash, but its Google Drive backup could not be deleted. Retry from Version Trash.")
+        db.commit()
+        return {"message": "Formatted version moved to Trash."}
+
+    @classmethod
+    def restore_version(cls, db: Session, document_id: uuid.UUID, version_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user)
+        version = db.query(DocumentFormatVersion).filter(
+            DocumentFormatVersion.id == version_id,
+            DocumentFormatVersion.document_id == document.id,
+            DocumentFormatVersion.is_deleted.is_(True),
+        ).first()
+        if version is None:
+            raise HTTPException(status_code=404, detail="Deleted formatted version not found.")
+        version.is_deleted = False
+        version.deleted_at = None
+        version.deleted_by = None
+        version.backup_status = "not_backed_up" if not version.drive_file_id else version.backup_status
+        db.commit()
+        return {"message": "Formatted version restored.", "id": version.id}
+
+    @classmethod
+    def permanently_delete_version(cls, db: Session, document_id: uuid.UUID, version_id: uuid.UUID, user):
+        document = cls._get_account_document(db, document_id, user)
+        version = db.query(DocumentFormatVersion).filter(
+            DocumentFormatVersion.id == version_id,
+            DocumentFormatVersion.document_id == document.id,
+            DocumentFormatVersion.is_deleted.is_(True),
+        ).first()
+        if version is None:
+            raise HTTPException(status_code=404, detail="Deleted formatted version not found.")
+        if version.drive_file_id:
+            GoogleDriveService.delete_drive_file(db, str(document.owner_user_id), version.drive_file_id)
+        db.delete(version)
+        db.commit()
+        return {"message": "Formatted version permanently deleted."}
 
     @classmethod
     def share(cls, db: Session, document_id: uuid.UUID, target_user_id: uuid.UUID, user, access_token: str):

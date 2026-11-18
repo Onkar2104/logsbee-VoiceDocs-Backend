@@ -204,7 +204,7 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
 def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
-    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id).first()
+    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id, DocumentFormatVersion.is_deleted.is_(False)).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
     try:
@@ -275,7 +275,8 @@ def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: S
 def list_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     versions = db.query(DocumentFormatVersion).filter(
-        DocumentFormatVersion.document_id == document.id
+        DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).order_by(DocumentFormatVersion.version_number.desc()).all()
     return {
         "active_version_id": document.active_format_version_id,
@@ -295,6 +296,7 @@ def get_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Sess
     version = db.query(DocumentFormatVersion).filter(
         DocumentFormatVersion.id == version_id,
         DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
@@ -317,6 +319,7 @@ def set_active_document_version(document_id: uuid.UUID, version_id: uuid.UUID, d
     version = db.query(DocumentFormatVersion).filter(
         DocumentFormatVersion.id == version_id,
         DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
@@ -347,6 +350,46 @@ def list_documents(
     return DocumentService.list_for_user(
         db, user, token, scope, page, page_size, search, legal_category, document_type
     )
+
+
+@router.get("/trash")
+def list_document_trash(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return DocumentService.list_trash(db, user, page, page_size)
+
+
+@router.post("/{document_id}/restore")
+def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.restore_document(db, document_id, user)
+
+
+@router.delete("/{document_id}/permanent")
+def permanently_delete_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.permanently_delete_document(db, document_id, user)
+
+
+@router.get("/{document_id}/version-trash")
+def list_deleted_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.list_deleted_versions(db, document_id, user)
+
+
+@router.delete("/{document_id}/versions/{version_id}")
+def delete_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.delete_version(db, document_id, version_id, user)
+
+
+@router.post("/{document_id}/versions/{version_id}/restore")
+def restore_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.restore_version(db, document_id, version_id, user)
+
+
+@router.delete("/{document_id}/versions/{version_id}/permanent")
+def permanently_delete_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.permanently_delete_version(db, document_id, version_id, user)
 
 
 @router.get("/sharing-summary")
