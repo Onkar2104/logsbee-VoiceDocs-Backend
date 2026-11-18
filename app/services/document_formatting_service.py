@@ -182,7 +182,7 @@ class DocumentFormattingService:
                 continue
             item = {"type": block["type"], "text": text}
             if required_source_ids is not None:
-                source_ids = block.get("source_segment_ids")
+                source_ids = block.get("source_segment_ids", [])
                 if not isinstance(source_ids, list) or any(not isinstance(source_id, str) for source_id in source_ids):
                     raise HTTPException(status_code=502, detail="The formatted legal document could not be checked against its source. Please try again.")
                 if any(source_id not in required_source_ids for source_id in source_ids):
