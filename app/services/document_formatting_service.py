@@ -194,6 +194,100 @@ class DocumentFormattingService:
         return formatted_html
 
     @staticmethod
+    def _build_divorce_petition_fallback(source: str) -> dict:
+        """Build a safe, structured Marathi divorce-petition layout without rewriting facts."""
+        segments = _split_legal_source_segments(source) or [source]
+        blocks = []
+
+        def add(kind: str, text: str, indexes: list[int] | None = None, level: int = 2):
+            block = {"type": kind, "text": text}
+            if indexes:
+                block["source_segment_ids"] = [
+                    f"SOURCE_SEGMENT_{index + 1:04d}" for index in indexes
+                ]
+            if kind == "heading":
+                block["level"] = level
+            blocks.append(block)
+
+        def add_numbered(index: int, text: str):
+            add("number", text, [index])
+
+        index = 0
+        if segments and segments[0].strip() == "विवाह विच्छेदासाठी अर्ज":
+            add("title", segments[0], [0])
+            index = 1
+        elif segments:
+            add("title", "विवाह विच्छेदासाठी अर्ज")
+
+        # Keep a split honorific and court name together as one court caption.
+        if index + 1 < len(segments) and segments[index].strip() in {"मा.", "मा"} and (
+            "न्यायालय" in segments[index + 1] or "कोर्ट" in segments[index + 1]
+        ):
+            add("heading", f"{segments[index]} {segments[index + 1]}", [index, index + 1], 1)
+            index += 2
+        elif index < len(segments) and ("न्यायालय" in segments[index] or "कोर्ट" in segments[index]):
+            add("heading", segments[index], [index], 1)
+            index += 1
+
+        if index < len(segments) and segments[index].strip() == "विवाह विच्छेदासाठी अर्ज":
+            add("heading", "विषय", level=2)
+            add("paragraph", segments[index], [index])
+            index += 1
+
+        # Preserve party labels and names together, while visually separating
+        # the petitioner and respondent blocks.
+        if index < len(segments) and segments[index].lstrip().startswith("अर्जदार"):
+            add("heading", "अर्जदाराचा तपशील", level=2)
+            party_parts = [segments[index]]
+            party_indexes = [index]
+            index += 1
+            if index < len(segments) and not segments[index].lstrip().startswith(("विरुद्ध", "प्रतिवादी")):
+                party_parts.append(segments[index])
+                party_indexes.append(index)
+                index += 1
+            add("paragraph", " ".join(party_parts), party_indexes)
+
+        if index < len(segments) and segments[index].lstrip().startswith(("विरुद्ध", "प्रतिवादी")):
+            add("heading", "प्रतिवादीचा तपशील", level=2)
+            party_parts = [segments[index]]
+            party_indexes = [index]
+            index += 1
+            if index < len(segments) and not segments[index].lstrip().startswith(("अर्जदार", "विरुद्ध", "प्रतिवादी")):
+                party_parts.append(segments[index])
+                party_indexes.append(index)
+                index += 1
+            add("paragraph", " ".join(party_parts), party_indexes)
+
+        section = None
+        for source_index in range(index, len(segments)):
+            segment = segments[source_index]
+            normalized = segment.strip()
+
+            if any(term in normalized for term in ("विवाह दिनांक", "विवाह झाला", "विवाह संपन्न")):
+                next_section = "विवाहाचा तपशील"
+            elif any(term in normalized for term in ("समेट", "कुटुंबीयांनी प्रयत्न", "प्रयत्न केले")):
+                next_section = "समेटाचे प्रयत्न"
+            elif any(term in normalized for term in ("स्वतंत्र राहत", "वेगळे राहत", "विभक्त राहत")):
+                next_section = "स्वतंत्र राहण्याचा तपशील"
+            elif any(term in normalized for term in ("दिलासा मिळावा", "विवाह विच्छेदाचा दिलासा", "मागणी आहे")):
+                next_section = "मागणी"
+            elif any(term in normalized for term in ("कागदपत्रे", "पुरावे")):
+                next_section = "कागदपत्रे व पुरावे"
+            elif any(term in normalized for term in ("न्यायालयास विनंती", "योग्य तो आदेश", "प्रार्थना")):
+                next_section = "प्रार्थना"
+            elif any(term in normalized for term in ("मतभेद", "वाद होऊ", "वैवाहिक जीवन", "एकत्र राहत")):
+                next_section = "वैवाहिक पार्श्वभूमी व मतभेद"
+            else:
+                next_section = section or "घटनाक्रम"
+
+            if next_section != section:
+                add("heading", next_section, level=2)
+                section = next_section
+            add_numbered(source_index, segment)
+
+        return {"blocks": blocks}
+
+    @staticmethod
     def _validate_result(value: object, required_source_ids: set[str] | None = None, required_source_text: str | None = None) -> dict:
         if not isinstance(value, dict) or not isinstance(value.get("blocks"), list):
             raise HTTPException(status_code=502, detail="The formatted document could not be validated. Please try again.")
@@ -578,25 +672,24 @@ class DocumentFormattingService:
                 )
                 # Last-resort safe output: retain every original segment in
                 # sequence. Never return the model's altered legal wording.
-                source_segments = _split_legal_source_segments(source) or [source]
-                fallback_title = (
-                    "विवाह विच्छेदासाठी अर्ज"
-                    if legal_context.get("document_type_id") == "divorce-petition-draft"
-                    else legal_context["document_type_label"]
-                )
-                fallback_blocks = [
-                    {"type": "title", "text": fallback_title}
-                ]
-                fallback_blocks.extend(
-                    {
-                        "type": "paragraph",
-                        "text": segment,
-                        "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}"],
+                if legal_context.get("document_type_id") == "divorce-petition-draft":
+                    fallback_content = cls._build_divorce_petition_fallback(source)
+                else:
+                    source_segments = _split_legal_source_segments(source) or [source]
+                    fallback_content = {
+                        "blocks": [
+                            {"type": "title", "text": legal_context["document_type_label"]}
+                        ] + [
+                            {
+                                "type": "paragraph",
+                                "text": segment,
+                                "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}"],
+                            }
+                            for index, segment in enumerate(source_segments, start=1)
+                        ]
                     }
-                    for index, segment in enumerate(source_segments, start=1)
-                )
                 structured = cls._validate_result(
-                    {"blocks": fallback_blocks},
+                    fallback_content,
                     required_source_ids=required_source_ids,
                     required_source_text=source,
                 )
