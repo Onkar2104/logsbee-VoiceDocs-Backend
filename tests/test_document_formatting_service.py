@@ -988,6 +988,8 @@ def test_divorce_petition_prompt_targets_gemini_style_structure_without_legal_as
         "do not assert territorial jurisdiction",
         "preserve every source factual sentence verbatim",
         "Never add a prayer for costs",
+        "do not create separate headings named मागणी and प्रार्थना when they repeat the same requested relief",
+        "join the fragment and that sentence into one continuous paragraph",
         "Never assume the applicable personal law",
     ]
     for phrase in required_phrases:
