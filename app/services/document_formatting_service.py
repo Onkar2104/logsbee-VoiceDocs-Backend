@@ -241,14 +241,14 @@ class DocumentFormattingService:
         )
         if legal_context:
             sections = legal_context.get("format_sections") or []
-            section_outline = "\\n".join(f"- {section}" for section in sections)
+            section_outline = "\n".join(f"- {section}" for section in sections)
             system_instruction += (
                 " This is a document-type-specific legal drafting format task for the manually selected India jurisdiction. "
                 f"The selected legal category is {legal_context['category_label']}; the exact selected document type is "
                 f"{legal_context['document_type_label']}. You MUST transform the source into that document type, "
                 "not merely apply generic legal styling and not leave the text as meeting notes or an unstructured narrative. "
-                "Use the following document-specific section outline as the target structure, in this order where applicable:\\n"
-                f"{section_outline}\\n"
+                "Use the following document-specific section outline as the target structure, in this order where applicable:\n"
+                f"{section_outline}\n"
                 "Create clear section headings and organize the supplied facts under the appropriate sections. "
                 "Include only sections that are relevant to this document type and source; do not fill sections with invented content. "
                 "When a required field is missing, retain the section and insert a concise bracketed placeholder such as "
