@@ -86,7 +86,7 @@ class DocumentService:
             raise
 
     @classmethod
-    def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my", page: int = 1, page_size: int = 10):
+    def list_for_user(cls, db: Session, user, access_token: str, scope: str = "my", page: int = 1, page_size: int = 10, search: str | None = None, legal_category: str | None = None, document_type: str | None = None):
         account_id = cls._require_account(user)
         current_user_id = uuid.UUID(user.id)
 
@@ -109,6 +109,24 @@ class DocumentService:
             )
         else:
             raise HTTPException(status_code=400, detail="Scope must be 'my', 'shared', or 'shared_by_me'.")
+
+        # Build filter choices from the complete scope before applying active filters.
+        filter_rows = query.with_entities(Document.legal_category, Document.document_type).distinct().all()
+        available_filters = {
+            "legal_categories": sorted({row[0] for row in filter_rows if row[0]}),
+            "document_types": sorted({row[1] for row in filter_rows if row[1]}),
+        }
+
+        if search and search.strip():
+            term = search.strip()
+            query = query.filter(
+                Document.title.ilike(f"%{term}%")
+                | Document.content.ilike(f"%{term}%")
+            )
+        if legal_category:
+            query = query.filter(Document.legal_category == legal_category)
+        if document_type:
+            query = query.filter(Document.document_type == document_type)
 
         total_records = query.order_by(None).count()
         documents = (
@@ -159,6 +177,7 @@ class DocumentService:
         total_pages = (total_records + page_size - 1) // page_size
         return {
             "items": results,
+            "filters": available_filters,
             "pagination": {
                 "page": page,
                 "page_size": page_size,

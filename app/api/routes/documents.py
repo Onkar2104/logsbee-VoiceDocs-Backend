@@ -337,11 +337,16 @@ def list_documents(
     scope: str = Query(default="my", pattern="^(my|shared|shared_by_me)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=200),
+    legal_category: str | None = Query(default=None, max_length=80),
+    document_type: str | None = Query(default=None, max_length=100),
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
     token: str = Depends(get_access_token),
 ):
-    return DocumentService.list_for_user(db, user, token, scope, page, page_size)
+    return DocumentService.list_for_user(
+        db, user, token, scope, page, page_size, search, legal_category, document_type
+    )
 
 
 @router.get("/sharing-summary")
