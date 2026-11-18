@@ -439,6 +439,8 @@ class DocumentService:
         if failures:
             raise HTTPException(status_code=502, detail=f"{len(failures)} Google Drive backup(s) could not be deleted. Retry permanent deletion after reconnecting Google Drive.")
         db.query(AudioRecording).filter(AudioRecording.document_id == document.id).delete(synchronize_session=False)
+        document.active_format_version_id = None
+        db.flush()
         db.delete(document)
         db.commit()
         return {"message": "Document permanently deleted."}
