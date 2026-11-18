@@ -291,19 +291,38 @@ def test_formatting_requires_server_api_key(monkeypatch):
     assert error.value.status_code == 503
 
 
-def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch):
+def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch, caplog):
     import httpx
+    import logging
     from app.core.config import settings
 
-    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(settings, "gemini_api_key", "test-secret-api-key")
 
     class RateLimitedResponse:
         status_code = 429
+        headers = {"Retry-After": "30"}
+
+        def json(self):
+            return {
+                "error": {
+                    "status": "RESOURCE_EXHAUSTED",
+                    "message": "Quota exceeded for this project. key=test-secret-api-key",
+                }
+            }
 
     monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: RateLimitedResponse())
-    with pytest.raises(HTTPException) as error:
-        DocumentFormattingService.format_transcript("Meeting notes")
+    with caplog.at_level(logging.WARNING, logger="app.services.document_formatting_service"):
+        with pytest.raises(HTTPException) as error:
+            DocumentFormattingService.format_transcript("Meeting notes")
+
     assert error.value.status_code == 429
+    assert "Gemini rate limit received" in caplog.text
+    assert "model=gemini-3.8-flash" in caplog.text
+    assert "RESOURCE_EXHAUSTED" in caplog.text
+    assert "Quota exceeded for this project." in caplog.text
+    assert "retry_after=30" in caplog.text
+    assert "test-secret-api-key" not in caplog.text
+    assert "[REDACTED]" in caplog.text
 
 
 
