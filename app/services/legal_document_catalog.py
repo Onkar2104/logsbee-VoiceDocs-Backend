@@ -383,7 +383,7 @@ DOCUMENT_TYPE_SECTIONS = {
         "Supporting facts and documents",
         "Relief sought",
         "Verification and signature"
-    ]
+    ],
     "legal-notice": ["Notice title and date","Sender and recipient particulars","Subject","Relevant background and transaction facts","Specific grievance or alleged breach","Demand or requested action based only on supplied instructions","Response deadline placeholder if absent","Reservation of rights and signature"],
     "prize-claim-application": ["Authority addressee and applicant particulars","Lottery or prize scheme details","Ticket and claim identification","Date and circumstances of winning","Claim submission history","Verification or supporting documents mentioned","Prize or payment requested","Declaration and signature"],
     "police-representation": ["Police authority addressee","Applicant particulars","Complaint or incident reference","Chronology of events","Earlier complaint and response details, if supplied","Specific grievance","Action requested","Date and signature"],
