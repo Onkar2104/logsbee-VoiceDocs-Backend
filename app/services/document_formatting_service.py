@@ -246,7 +246,12 @@ class DocumentFormattingService:
                     status_code=502,
                     detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
                 )
-            if _legal_numeric_tokens(factual_text) != _legal_numeric_tokens(required_source_text):
+            numeric_audit_text = "\\n".join(
+                re.sub(r"^\\s*\\d{1,3}[.)]\\s+", "", block["text"])
+                if block["type"] == "heading" else block["text"]
+                for block in clean
+            )
+            if _legal_numeric_tokens(numeric_audit_text) != _legal_numeric_tokens(required_source_text):
                 raise HTTPException(
                     status_code=502,
                     detail="The legal draft changed or added a date, number, or amount. Please retry formatting or keep the original text.",

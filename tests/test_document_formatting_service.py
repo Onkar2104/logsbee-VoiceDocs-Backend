@@ -882,6 +882,20 @@ def test_legal_output_rejects_invented_dates_numbers_or_amounts():
     assert "date, number, or amount" in error.value.detail
 
 
+def test_legal_output_rejects_invented_case_number_in_heading():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [
+                {"type": "heading", "text": "केस क्रमांक १२/२०२६"},
+                {"type": "paragraph", "text": source},
+            ]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
+
+
 def test_legal_output_accepts_source_text_with_added_structural_headings_and_placeholders():
     source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
     result = DocumentFormattingService._validate_result(
