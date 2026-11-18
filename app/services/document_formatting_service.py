@@ -236,7 +236,7 @@ class DocumentFormattingService:
             # letters/marks and digits. Only whitespace/punctuation and separate
             # structural headings may change. Bracketed missing-field placeholders
             # are excluded from this comparison.
-            factual_text = "\\n".join(
+            factual_text = "\n".join(
                 block["text"]
                 for block in clean
                 if block["type"] in {"paragraph", "bullet", "number", "quote"}
@@ -246,7 +246,7 @@ class DocumentFormattingService:
                     status_code=502,
                     detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
                 )
-            numeric_audit_text = "\\n".join(
+            numeric_audit_text = "\n".join(
                 re.sub(r"^\\s*\\d{1,3}[.)]\\s+", "", block["text"])
                 if block["type"] == "heading" else block["text"]
                 for block in clean
