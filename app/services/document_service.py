@@ -410,6 +410,11 @@ class DocumentService:
             "items": [{
                 "id": item.id, "title": item.title, "owner_user_id": item.owner_user_id,
                 "deleted_at": item.deleted_at, "deleted_by": item.deleted_by,
+                "drive_cleanup_pending": bool(
+                    item.drive_file_id
+                    or db.query(DocumentFormatVersion.id).filter(DocumentFormatVersion.document_id == item.id, DocumentFormatVersion.drive_file_id.isnot(None)).first()
+                    or db.query(AudioRecording.id).filter(AudioRecording.document_id == item.id, AudioRecording.drive_file_id.isnot(None)).first()
+                ),
                 "created_at": item.created_at, "updated_at": item.updated_at,
             } for item in items],
             "pagination": {
