@@ -108,6 +108,7 @@ DOCUMENT_TYPE_SECTIONS = {
         "Grounds expressly stated by the user only; never infer a statutory ground",
         "Children, maintenance, custody, prior proceedings and jurisdiction only when established by supplied facts; otherwise use an uncompleted professional-review placeholder if the section is necessary",
         "Documents and evidence actually mentioned by the user, without inventing an annexure list",
+        "Each prayer or relief requested by the user must be retained as a separate clause; never merge, omit or add reliefs",
         "A distinct prayer section containing only the relief requested in the source",
         "Place, date, applicant signature and advocate particulars as explicit uncompleted placeholders when absent",
         "Verification section only as an uncompleted placeholder for legally appropriate wording to be completed and checked by a qualified professional"
