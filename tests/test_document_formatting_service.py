@@ -705,3 +705,52 @@ def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeyp
     assert "Reliefs or prayers sought" in prompt
     assert "MUST transform the source into that document type" in prompt
     assert "Never invent facts" in prompt
+
+
+def test_legal_formatting_prompt_preserves_all_source_details_and_separate_reliefs(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Formatted complete draft"}]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured["payload"] = kwargs["json"]
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("india", "family-matrimonial-law", "divorce-petition-draft")
+    source = (
+        "याचिकाकर्ता व्यवसायाने शिक्षक आहे आणि पुणे येथे राहतो. "
+        "पहिली घटना १२ जानेवारी रोजी घडली. दुसरी घटना १८ जानेवारी रोजी घडली. "
+        "प्रार्थना १: घटस्फोटाचा हुकूम द्यावा. "
+        "प्रार्थना २: खर्च मंजूर करावा. "
+        "प्रार्थना ३: योग्य इतर दिलासा द्यावा."
+    )
+
+    DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
+    assert "NOT summarization" in instruction
+    assert "Do not shorten the source" in instruction
+    assert "occupation, address" in instruction
+    assert "each separate prayer" in instruction
+    assert "never collapse multiple reliefs" in instruction
+    assert "silently cross-check it against the source" in instruction
+    assert "Chronology of matrimonial facts" in instruction
+    assert "Reliefs or prayers sought" in instruction
+    assert captured["payload"]["contents"][0]["parts"][0]["text"].endswith(source)
