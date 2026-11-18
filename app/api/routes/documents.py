@@ -204,7 +204,7 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
 def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
-    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id).first()
+    version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version_id, DocumentFormatVersion.document_id == document.id, DocumentFormatVersion.is_deleted.is_(False)).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
     try:
@@ -319,6 +319,7 @@ def set_active_document_version(document_id: uuid.UUID, version_id: uuid.UUID, d
     version = db.query(DocumentFormatVersion).filter(
         DocumentFormatVersion.id == version_id,
         DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
