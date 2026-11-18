@@ -362,6 +362,11 @@ def list_document_trash(
     return DocumentService.list_trash(db, user, page, page_size)
 
 
+@router.get("/version-trash")
+def list_all_deleted_document_versions(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.list_all_deleted_versions(db, user)
+
+
 @router.post("/{document_id}/restore")
 def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     return DocumentService.restore_document(db, document_id, user)
