@@ -19,6 +19,41 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _log_gemini_rate_limit(response: httpx.Response, model: str) -> None:
+    """Log limited provider diagnostics without exposing credentials or request data."""
+    provider_status = None
+    provider_message = "Provider returned a non-JSON error response."
+    try:
+        payload = response.json()
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(error, dict):
+            provider_status = error.get("status")
+            message = error.get("message")
+            if isinstance(message, str):
+                provider_message = message[:500]
+    except (ValueError, TypeError):
+        pass
+
+    api_key = settings.gemini_api_key
+    if isinstance(api_key, str) and api_key:
+        provider_message = provider_message.replace(api_key, "[REDACTED]")
+    provider_message = re.sub(
+        r"(?i)(key|token|authorization)(\\s*[:=]\\s*)[^\\s,;]+",
+        r"\\1\\2[REDACTED]",
+        provider_message,
+    )
+    retry_after = response.headers.get("Retry-After")
+    logger.warning(
+        "Gemini rate limit received (model=%s, http_status=%s, provider_status=%s, retry_after=%s, provider_message=%s)",
+        model,
+        response.status_code,
+        provider_status,
+        retry_after,
+        provider_message,
+    )
+
+
 GEMINI_MODEL = "gemini-3.8-flash"
 
 MAX_SOURCE_CHARACTERS = 30000
@@ -518,6 +553,7 @@ class DocumentFormattingService:
             headers = {"x-goog-api-key": settings.gemini_api_key}
             transient_statuses = {500, 502, 503, 504}
             response = None
+            response_model = GEMINI_MODEL
             primary_error = None
 
             for attempt in range(2):
@@ -530,6 +566,7 @@ class DocumentFormattingService:
 
                 if response is not None:
                     if response.status_code == 429:
+                        _log_gemini_rate_limit(response, GEMINI_MODEL)
                         raise HTTPException(
                             status_code=429,
                             detail="Document formatting is temporarily busy. Please try again later.",
@@ -576,6 +613,7 @@ class DocumentFormattingService:
                         json=payload,
                         timeout=timeout,
                     )
+                    response_model = fallback_model
                 except httpx.TimeoutException as fallback_error:
                     # Keep the most actionable provider failure when both attempts fail.
                     # A primary 503 followed by a fallback timeout is still an overload;
@@ -600,6 +638,7 @@ class DocumentFormattingService:
                 raise httpx.ReadTimeout("Gemini did not return a response.")
 
             if response.status_code == 429:
+                _log_gemini_rate_limit(response, response_model)
                 raise HTTPException(
                     status_code=429,
                     detail="Document formatting is temporarily busy. Please try again later.",
