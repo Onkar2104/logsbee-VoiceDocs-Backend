@@ -4,6 +4,8 @@ import json
 import logging
 import re
 import time
+import unicodedata
+from collections import Counter
 from io import BytesIO
 from html import escape
 
@@ -18,7 +20,32 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-3.8-flash"
+
 MAX_SOURCE_CHARACTERS = 30000
+
+
+def _split_legal_source_segments(source: str) -> list[str]:
+    """Split legal source into traceable sentence/line units without splitting numeric dates."""
+    return [
+        part.strip()
+        for part in re.split(r"(?<=[.!?।॥])\\s+|\\r?\\n+", source)
+        if part.strip()
+    ]
+
+
+def _normalize_legal_text(value: str) -> str:
+    """Ignore layout punctuation/spacing while preserving every Unicode letter, mark and digit."""
+    value = unicodedata.normalize("NFC", re.sub(r"\\[[^\\]]{1,160}\\]", "", value))
+    return "".join(
+        character
+        for character in value
+        if unicodedata.category(character)[0] in {"L", "M", "N"}
+    )
+
+
+def _legal_numeric_tokens(value: str) -> Counter:
+    """Capture numeric facts (including Indian-script digits and formatted dates/amounts)."""
+    return Counter(re.findall(r"\\d+(?:[.,:/-]\\d+)*", value))
 
 OUTPUT_SCHEMA = {
     "type": "OBJECT",
@@ -167,7 +194,7 @@ class DocumentFormattingService:
         return formatted_html
 
     @staticmethod
-    def _validate_result(value: object, required_source_ids: set[str] | None = None) -> dict:
+    def _validate_result(value: object, required_source_ids: set[str] | None = None, required_source_text: str | None = None) -> dict:
         if not isinstance(value, dict) or not isinstance(value.get("blocks"), list):
             raise HTTPException(status_code=502, detail="The formatted document could not be validated. Please try again.")
         if not value["blocks"] or len(value["blocks"]) > 500:
@@ -202,6 +229,27 @@ class DocumentFormattingService:
                 raise HTTPException(
                     status_code=502,
                     detail="The legal draft may have omitted part of the original text. Please try formatting again or retain the original text.",
+                )
+        if required_source_text is not None:
+            # For legal documents this feature is formatting, not rewriting.
+            # All factual blocks together must retain the source wording, order,
+            # letters/marks and digits. Only whitespace/punctuation and separate
+            # structural headings may change. Bracketed missing-field placeholders
+            # are excluded from this comparison.
+            factual_text = "\\n".join(
+                block["text"]
+                for block in clean
+                if block["type"] in {"paragraph", "bullet", "number", "quote"}
+            )
+            if _normalize_legal_text(factual_text) != _normalize_legal_text(required_source_text):
+                raise HTTPException(
+                    status_code=502,
+                    detail="The legal draft changed, added, or omitted source wording. Please retry formatting or keep the original text.",
+                )
+            if _legal_numeric_tokens(factual_text) != _legal_numeric_tokens(required_source_text):
+                raise HTTPException(
+                    status_code=502,
+                    detail="The legal draft changed or added a date, number, or amount. Please retry formatting or keep the original text.",
                 )
         return {"blocks": clean}
 
@@ -257,12 +305,12 @@ class DocumentFormattingService:
         required_source_ids = None
         user_source = source
         if legal_context:
-            source_lines = [line.strip() for line in source.splitlines() if line.strip()]
+            source_lines = _split_legal_source_segments(source)
             if not source_lines:
                 source_lines = [source]
             source_segments = [
-                {"id": f"SOURCE_SEGMENT_{index:04d}", "text": line}
-                for index, line in enumerate(source_lines, start=1)
+                {"id": f"SOURCE_SEGMENT_{index:04d}", "text": segment}
+                for index, segment in enumerate(source_lines, start=1)
             ]
             required_source_ids = {segment["id"] for segment in source_segments}
             user_source = "\n".join(
@@ -278,6 +326,13 @@ class DocumentFormattingService:
                 "Use the following document-specific section outline as the target structure, in this order where applicable:\n"
                 f"{section_outline}\n"
                 "Create clear section headings and organize the supplied facts under the appropriate sections. "
+                "VERBATIM FACTUAL CONTENT RULE: this is a formatting task, not a rewriting task. Reproduce every source word in factual "
+                "paragraph, bullet, numbered and quote blocks, in the original order and language. Do not paraphrase, translate, summarize, "
+                "correct grammar, replace names, normalize or spell out digits, or alter the factual wording. You may improve layout, "
+                "paragraph separation, headings and punctuation/spacing only. Do not add factual prose that is not in the source. "
+                "The factual blocks, when read together, must contain exactly the source wording (ignoring whitespace and punctuation); "
+                "bracketed placeholders for genuinely missing administrative fields may be added but must never replace supplied content. "
+                "If this cannot be achieved, do not improvise a shorter or rewritten draft. "
                 "CRITICAL SOURCE-PRESERVATION RULE: this is formatting and document-structuring, NOT summarization, paraphrased condensation, "
                 "or preparation of a short synopsis. The final draft must retain the complete substance and detail of the source. "
                 "Do not shorten the source, omit paragraphs, merge distinct facts into a general statement, or replace detailed allegations "
@@ -308,7 +363,17 @@ class DocumentFormattingService:
                 "a complete draft, do not return a shortened version; fail rather than silently omit source content. "
                 "Do not provide legal advice, legal research, legal conclusions, or legal validity checks. "
                 "Never invent facts, names, dates, amounts, allegations, statutes, sections, citations, courts, "
-                "case numbers, evidence, procedural steps, or contractual terms. Preserve every supplied legal reference and its wording. "
+                "case numbers, evidence, procedural steps, or contractual terms. In particular, do not assume a party's religion or personal law, "
+                "do not select or cite a matrimonial statute or section unless it appears in the source, and do not infer territorial or court "
+                "jurisdiction from a city mentioned in the facts. Preserve every supplied legal reference and its wording. "
+                "For a Divorce Petition Draft, do not assume the applicable personal law, marriage statute, statutory ground, separation date, "
+                "last shared residence, children, maintenance claim, prior case, evidence or court. Use a neutral petition structure: "
+                "court/case particulars (placeholders unless supplied); petitioner and respondent particulars; marriage particulars; "
+                "chronological factual paragraphs; only grounds expressly stated by the user; children/prior proceedings/reconciliation "
+                "only if stated; each requested prayer as a separate clause; and clearly marked place/date/signature/verification fields "
+                "only as uncompleted placeholders where relevant. Never add a prayer for costs, custody, maintenance or any other relief "
+                "unless requested in the source. Do not use words that change the requested remedy (for example, do not substitute annulment "
+                "for dissolution of marriage). A heading may identify a section, but must not assert a legal conclusion or statutory basis. "
                 "Do not state that a legal requirement is mandatory unless the source itself says so. "
                 "Preserve the source language, script, meaning, and intent. "
                 "The user message labels each non-empty source line with a SOURCE_SEGMENT ID. Treat these labels as internal tracking metadata, never include them in the document text, and attach each ID to the output block or blocks that preserve that line using the source_segment_ids field. Every supplied source ID must be represented at least once. Do not claim an ID for content that was not retained."
@@ -429,5 +494,5 @@ class DocumentFormattingService:
             if status_code == 503:
                 raise HTTPException(status_code=503, detail="Gemini is temporarily overloaded. Please try again in a moment.") from exc
             raise HTTPException(status_code=502, detail="Document formatting is temporarily unavailable. Please try again.") from exc
-        structured = cls._validate_result(parsed, required_source_ids=required_source_ids)
+        structured = cls._validate_result(parsed, required_source_ids=required_source_ids, required_source_text=source if legal_context else None)
         return structured, cls._to_html(structured)

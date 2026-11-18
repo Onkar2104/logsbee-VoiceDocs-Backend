@@ -685,7 +685,7 @@ def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeyp
                     {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
                     {"type": "paragraph", "text": "[याचिकाकर्त्याचे नाव]"},
                     {"type": "heading", "text": "प्रार्थना"},
-                    {"type": "paragraph", "text": "दिलेल्या माहितीनुसार मागितलेला दिलासा.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+                    {"type": "paragraph", "text": "लग्नाची माहिती आणि घटस्फोटाची मागणी", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
                 ]
             })}]}}]}
 
@@ -716,6 +716,13 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
     monkeypatch.setattr(settings, "gemini_api_key", "test-key")
     captured = {}
 
+    source = (
+        "याचिकाकर्ता व्यवसायाने शिक्षक आहे आणि पुणे येथे राहतो. "
+        "पहिली घटना १२ जानेवारी रोजी घडली. दुसरी घटना १८ जानेवारी रोजी घडली. "
+        "प्रार्थना १: घटस्फोटाचा हुकूम द्यावा. "
+        "प्रार्थना २: खर्च मंजूर करावा. "
+        "प्रार्थना ३: योग्य इतर दिलासा द्यावा."
+    )
     class SuccessResponse:
         status_code = 200
         headers = {}
@@ -725,7 +732,11 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
 
         def json(self):
             return {"candidates": [{"content": {"parts": [{"text": json.dumps({
-                "blocks": [{"type": "paragraph", "text": "Formatted complete draft", "source_segment_ids": ["SOURCE_SEGMENT_0001"]}]
+                "blocks": [{
+                    "type": "paragraph",
+                    "text": source,
+                    "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}" for index in range(1, 7)],
+                }]
             })}]}}]}
 
     def fake_post(_url, **kwargs):
@@ -734,14 +745,6 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
 
     monkeypatch.setattr(httpx, "post", fake_post)
     context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
-    source = (
-        "याचिकाकर्ता व्यवसायाने शिक्षक आहे आणि पुणे येथे राहतो. "
-        "पहिली घटना १२ जानेवारी रोजी घडली. दुसरी घटना १८ जानेवारी रोजी घडली. "
-        "प्रार्थना १: घटस्फोटाचा हुकूम द्यावा. "
-        "प्रार्थना २: खर्च मंजूर करावा. "
-        "प्रार्थना ३: योग्य इतर दिलासा द्यावा."
-    )
-
     DocumentFormattingService.format_transcript(source, legal_context=context)
 
     instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
@@ -835,3 +838,59 @@ def test_general_docx_export_keeps_default_layout():
     assert document.paragraphs[0].alignment != WD_ALIGN_PARAGRAPH.JUSTIFY
     assert document.sections[0].left_margin == default_document.sections[0].left_margin
     assert document.paragraphs[0].paragraph_format.line_spacing is None
+
+
+
+def test_legal_source_is_split_into_sentence_level_traceable_segments():
+    from app.services.document_formatting_service import _split_legal_source_segments
+
+    source = "विवाह 15.02.2018 रोजी झाला. पहिली घटना १२ जानेवारीला घडली.\\nदुसरी घटना नंतर घडली."
+    assert _split_legal_source_segments(source) == [
+        "विवाह 15.02.2018 रोजी झाला.",
+        "पहिली घटना १२ जानेवारीला घडली.",
+        "दुसरी घटना नंतर घडली.",
+    ]
+
+
+def test_legal_output_rejects_reworded_or_omitted_source_even_when_ids_are_claimed():
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{
+                "type": "paragraph",
+                "text": "राहुल शर्मा पुणे येथे राहतो. विवाह २०१८ रोजी झाला.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0001"],
+            }]},
+            required_source_ids={"SOURCE_SEGMENT_0001"},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "changed, added, or omitted" in error.value.detail
+
+
+def test_legal_output_rejects_invented_dates_numbers_or_amounts():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [
+                {"type": "heading", "text": "विवाहाचा तपशील"},
+                {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला. अर्ज क्रमांक १२/२०२६."},
+            ]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
+
+
+def test_legal_output_accepts_source_text_with_added_structural_headings_and_placeholders():
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    result = DocumentFormattingService._validate_result(
+        {"blocks": [
+            {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
+            {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो."},
+            {"type": "heading", "text": "विवाहाचा तपशील"},
+            {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी झाला. [Marriage Registration Number]"},
+        ]},
+        required_source_text=source,
+    )
+    assert len(result["blocks"]) == 4
