@@ -685,7 +685,7 @@ def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeyp
                     {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
                     {"type": "paragraph", "text": "[याचिकाकर्त्याचे नाव]"},
                     {"type": "heading", "text": "प्रार्थना"},
-                    {"type": "paragraph", "text": "दिलेल्या माहितीनुसार मागितलेला दिलासा."},
+                    {"type": "paragraph", "text": "दिलेल्या माहितीनुसार मागितलेला दिलासा.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
                 ]
             })}]}}]}
 
@@ -753,4 +753,40 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
     assert "silently cross-check it against the source" in instruction
     assert "Chronology of matrimonial facts" in instruction
     assert "Reliefs or prayers sought" in instruction
-    assert captured["payload"]["contents"][0]["parts"][0]["text"].endswith(source)
+    assert source in captured["payload"]["contents"][0]["parts"][0]["text"]
+    assert "[SOURCE_SEGMENT_0001]" in captured["payload"]["contents"][0]["parts"][0]["text"]
+
+
+
+def test_legal_structured_output_rejects_missing_source_segments():
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "Only part of the draft", "source_segment_ids": ["SOURCE_SEGMENT_0001"]}]},
+            required_source_ids={"SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"},
+        )
+
+    assert error.value.status_code == 502
+    assert "omitted part" in error.value.detail
+
+
+def test_legal_structured_output_rejects_unknown_source_segment():
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "Draft", "source_segment_ids": ["SOURCE_SEGMENT_9999"]}]},
+            required_source_ids={"SOURCE_SEGMENT_0001"},
+        )
+
+    assert error.value.status_code == 502
+    assert "invalid source references" in error.value.detail
+
+
+def test_legal_structured_output_accepts_complete_source_coverage():
+    result = DocumentFormattingService._validate_result(
+        {"blocks": [
+            {"type": "paragraph", "text": "पहिला मुद्दा", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+            {"type": "paragraph", "text": "दुसरा मुद्दा", "source_segment_ids": ["SOURCE_SEGMENT_0002"]},
+        ]},
+        required_source_ids={"SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"},
+    )
+
+    assert len(result["blocks"]) == 2
