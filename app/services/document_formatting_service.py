@@ -318,8 +318,6 @@ class DocumentFormattingService:
                 next_section = "समेटाचे प्रयत्न"
             elif any(term in normalized for term in ("स्वतंत्र राहत", "वेगळे राहत", "विभक्त राहत")):
                 next_section = "स्वतंत्र राहण्याचा तपशील"
-            elif any(term in normalized for term in ("दिलासा मिळावा", "विवाह विच्छेदाचा दिलासा", "मागणी आहे")):
-                next_section = "मागणी"
             elif any(term in normalized for term in ("कागदपत्रे", "पुरावे")):
                 next_section = "कागदपत्रे व पुरावे"
             elif any(term in normalized for term in ("न्यायालयास विनंती", "योग्य तो आदेश", "प्रार्थना")):
