@@ -858,7 +858,7 @@ def test_legal_output_rejects_reworded_or_omitted_source_even_when_ids_are_claim
         DocumentFormattingService._validate_result(
             {"blocks": [{
                 "type": "paragraph",
-                "text": "राहुल शर्मा पुणे येथे राहतो. विवाह २०१८ रोजी झाला.",
+                "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
                 "source_segment_ids": ["SOURCE_SEGMENT_0001"],
             }]},
             required_source_ids={"SOURCE_SEGMENT_0001"},
@@ -866,6 +866,17 @@ def test_legal_output_rejects_reworded_or_omitted_source_even_when_ids_are_claim
         )
     assert error.value.status_code == 502
     assert "changed, added, or omitted" in error.value.detail
+
+
+def test_legal_output_rejects_omitted_date_even_when_other_wording_is_preserved():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "विवाह २०१८ रोजी पुणे येथे झाला."}]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
 
 
 def test_legal_output_rejects_invented_dates_numbers_or_amounts():
