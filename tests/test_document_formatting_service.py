@@ -1080,7 +1080,7 @@ def test_legal_formatting_uses_verbatim_fallback_when_corrective_retry_fails(mon
 
     factual_blocks = [
         block["text"] for block in structured["blocks"]
-        if block["type"] == "paragraph"
+        if block["type"] in {"paragraph", "number", "bullet", "quote"}
     ]
     assert len(calls) == 2
     assert factual_blocks == [
