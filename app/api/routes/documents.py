@@ -275,7 +275,8 @@ def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: S
 def list_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     versions = db.query(DocumentFormatVersion).filter(
-        DocumentFormatVersion.document_id == document.id
+        DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).order_by(DocumentFormatVersion.version_number.desc()).all()
     return {
         "active_version_id": document.active_format_version_id,
@@ -295,6 +296,7 @@ def get_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Sess
     version = db.query(DocumentFormatVersion).filter(
         DocumentFormatVersion.id == version_id,
         DocumentFormatVersion.document_id == document.id,
+        DocumentFormatVersion.is_deleted.is_(False),
     ).first()
     if version is None:
         raise HTTPException(status_code=404, detail="Formatted version not found.")
