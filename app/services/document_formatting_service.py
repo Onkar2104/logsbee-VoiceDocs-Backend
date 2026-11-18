@@ -336,6 +336,42 @@ class DocumentFormattingService:
         return {"blocks": blocks}
 
     @staticmethod
+    def _normalize_divorce_petition_layout(content: dict) -> dict:
+        """Remove duplicate relief headings and join split Marathi court salutations."""
+        blocks = content.get("blocks", [])
+        normalized = []
+        index = 0
+        factual_types = {"paragraph", "number", "bullet", "quote"}
+
+        while index < len(blocks):
+            block = dict(blocks[index])
+            if block.get("type") == "heading" and block.get("text", "").strip() == "मागणी":
+                index += 1
+                continue
+
+            if (
+                block.get("type") in factual_types
+                and block.get("text", "").strip() in {"म्हणून मा.", "म्हणून मा"}
+                and index + 1 < len(blocks)
+                and blocks[index + 1].get("type") in factual_types
+                and blocks[index + 1].get("text", "").lstrip().startswith("न्यायालयास विनंती")
+            ):
+                following = dict(blocks[index + 1])
+                following["text"] = f'{block["text"].rstrip()} {following["text"].lstrip()}'
+                source_ids = list(dict.fromkeys(
+                    block.get("source_segment_ids", []) + following.get("source_segment_ids", [])
+                ))
+                if source_ids:
+                    following["source_segment_ids"] = source_ids
+                block = following
+                index += 1
+
+            normalized.append(block)
+            index += 1
+
+        return {"blocks": normalized}
+
+    @staticmethod
     def _validate_result(value: object, required_source_ids: set[str] | None = None, required_source_text: str | None = None) -> dict:
         if not isinstance(value, dict) or not isinstance(value.get("blocks"), list):
             raise HTTPException(status_code=502, detail="The formatted document could not be validated. Please try again.")
@@ -753,5 +789,8 @@ class DocumentFormattingService:
                     "Legal formatting used verbatim source fallback after validation failure (original_error=%s)",
                     validation_error.detail,
                 )
+
+        if legal_context and legal_context.get("document_type_id") == "divorce-petition-draft":
+            structured = cls._normalize_divorce_petition_layout(structured)
 
         return structured, cls._to_html(structured)
