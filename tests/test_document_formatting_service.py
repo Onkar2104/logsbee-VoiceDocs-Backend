@@ -790,3 +790,46 @@ def test_legal_structured_output_accepts_complete_source_coverage():
     )
 
     assert len(result["blocks"]) == 2
+
+
+
+def test_legal_docx_export_uses_formal_page_layout_and_typography():
+    from io import BytesIO
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx(
+        "<h1>विवाह विच्छेद याचिका</h1>"
+        "<h2>याचिकाकर्त्याचा तपशील</h2>"
+        "<p>याचिकाकर्ता पुणे येथे राहतो.</p>",
+        legal_mode=True,
+    )
+    document = Document(BytesIO(output))
+    section = document.sections[0]
+
+    assert round(section.top_margin.inches, 2) == 1.0
+    assert round(section.bottom_margin.inches, 2) == 1.0
+    assert round(section.left_margin.inches, 2) == 1.25
+    assert round(section.right_margin.inches, 2) == 1.0
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert document.paragraphs[1].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert document.paragraphs[2].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.paragraphs[2].runs[0].font.name == "Times New Roman"
+    assert document.paragraphs[2].runs[0].font.size.pt == 12
+    assert document.paragraphs[2].paragraph_format.line_spacing == 1.5
+
+
+def test_general_docx_export_keeps_default_layout():
+    from io import BytesIO
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx("<p>General document paragraph.</p>")
+    document = Document(BytesIO(output))
+
+    assert document.paragraphs[0].alignment != WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.sections[0].left_margin.inches < 1.25
