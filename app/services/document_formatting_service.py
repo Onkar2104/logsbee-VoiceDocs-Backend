@@ -294,9 +294,23 @@ class DocumentFormattingService:
             add("paragraph", " ".join(party_parts), party_indexes)
 
         section = None
-        for source_index in range(index, len(segments)):
+        source_index = index
+        while source_index < len(segments):
             segment = segments[source_index]
+            source_indexes = [source_index]
             normalized = segment.strip()
+
+            # A line break may split a single Marathi court-request sentence
+            # after its honorific. Keep both source segments verbatim and attach
+            # both source IDs to the resulting numbered paragraph.
+            if (
+                normalized in {"म्हणून मा.", "म्हणून मा"}
+                and source_index + 1 < len(segments)
+                and segments[source_index + 1].strip().startswith("न्यायालयास विनंती")
+            ):
+                segment = f"{segment.rstrip()} {segments[source_index + 1].lstrip()}"
+                normalized = segment.strip()
+                source_indexes.append(source_index + 1)
 
             if any(term in normalized for term in ("विवाह दिनांक", "विवाह झाला", "विवाह संपन्न")):
                 next_section = "विवाहाचा तपशील"
@@ -318,7 +332,8 @@ class DocumentFormattingService:
             if next_section != section:
                 add("heading", next_section, level=2)
                 section = next_section
-            add_numbered(source_index, segment)
+            add("number", segment, source_indexes)
+            source_index += len(source_indexes)
 
         return {"blocks": blocks}
 
