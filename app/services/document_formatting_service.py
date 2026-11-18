@@ -240,6 +240,7 @@ class DocumentFormattingService:
                 block["text"]
                 for block in clean
                 if block["type"] in {"paragraph", "bullet", "number", "quote"}
+                or block.get("source_segment_ids")
             )
             numeric_audit_text = "\n".join(
                 re.sub(r"^\s*\d{1,3}[.)]\s+", "", block["text"])
