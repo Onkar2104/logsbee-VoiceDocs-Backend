@@ -31,6 +31,7 @@ OUTPUT_SCHEMA = {
                     "type": {"type": "STRING", "enum": ["title", "heading", "paragraph", "bullet", "number", "quote"]},
                     "text": {"type": "STRING"},
                     "level": {"type": "INTEGER", "minimum": 1, "maximum": 3},
+                    "source_segment_ids": {"type": "ARRAY", "items": {"type": "STRING"}},
                 },
                 "required": ["type", "text"],
             },
@@ -166,7 +167,7 @@ class DocumentFormattingService:
         return formatted_html
 
     @staticmethod
-    def _validate_result(value: object) -> dict:
+    def _validate_result(value: object, required_source_ids: set[str] | None = None) -> dict:
         if not isinstance(value, dict) or not isinstance(value.get("blocks"), list):
             raise HTTPException(status_code=502, detail="The formatted document could not be validated. Please try again.")
         if not value["blocks"] or len(value["blocks"]) > 500:
@@ -180,6 +181,13 @@ class DocumentFormattingService:
             if not text or len(text) > 12000:
                 continue
             item = {"type": block["type"], "text": text}
+            if required_source_ids is not None:
+                source_ids = block.get("source_segment_ids")
+                if not isinstance(source_ids, list) or any(not isinstance(source_id, str) for source_id in source_ids):
+                    raise HTTPException(status_code=502, detail="The formatted legal document could not be checked against its source. Please try again.")
+                if any(source_id not in required_source_ids for source_id in source_ids):
+                    raise HTTPException(status_code=502, detail="The formatted legal document returned invalid source references. Please try again.")
+                item["source_segment_ids"] = list(dict.fromkeys(source_ids))
             if item["type"] == "heading":
                 try:
                     item["level"] = min(3, max(1, int(block.get("level", 2))))
@@ -188,6 +196,13 @@ class DocumentFormattingService:
             clean.append(item)
         if not clean:
             raise HTTPException(status_code=502, detail="The formatted document was empty. Please try again.")
+        if required_source_ids is not None:
+            covered_source_ids = {source_id for block in clean for source_id in block.get("source_segment_ids", [])}
+            if required_source_ids - covered_source_ids:
+                raise HTTPException(
+                    status_code=502,
+                    detail="The legal draft may have omitted part of the original text. Please try formatting again or retain the original text.",
+                )
         return {"blocks": clean}
 
     @staticmethod
@@ -239,7 +254,20 @@ class DocumentFormattingService:
             "Return every meaningful source detail in the required structured format. "
             "If the source contains VOICEDOCS_EMBEDDED_IMAGE markers, preserve every marker exactly once and in its original relative position; do not edit, split, omit, or duplicate them."
         )
+        required_source_ids = None
+        user_source = source
         if legal_context:
+            source_lines = [line.strip() for line in source.splitlines() if line.strip()]
+            if not source_lines:
+                source_lines = [source]
+            source_segments = [
+                {"id": f"SOURCE_SEGMENT_{index:04d}", "text": line}
+                for index, line in enumerate(source_lines, start=1)
+            ]
+            required_source_ids = {segment["id"] for segment in source_segments}
+            user_source = "\\n".join(
+                f"[{segment['id']}]\\n{segment['text']}" for segment in source_segments
+            )
             sections = legal_context.get("format_sections") or []
             section_outline = "\n".join(f"- {section}" for section in sections)
             system_instruction += (
@@ -282,12 +310,13 @@ class DocumentFormattingService:
                 "Never invent facts, names, dates, amounts, allegations, statutes, sections, citations, courts, "
                 "case numbers, evidence, procedural steps, or contractual terms. Preserve every supplied legal reference and its wording. "
                 "Do not state that a legal requirement is mandatory unless the source itself says so. "
-                "Preserve the source language, script, meaning, and intent."
+                "Preserve the source language, script, meaning, and intent. "
+                "The user message labels each non-empty source line with a SOURCE_SEGMENT ID. Treat these labels as internal tracking metadata, never include them in the document text, and attach each ID to the output block or blocks that preserve that line using the source_segment_ids field. Every supplied source ID must be represented at least once. Do not claim an ID for content that was not retained."
             )
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "contents": [{"role": "user", "parts": [{"text": "Format this transcript:\n\n" + source}]}],
+            "contents": [{"role": "user", "parts": [{"text": "Format this transcript:\n\n" + user_source}]}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": OUTPUT_SCHEMA,
@@ -400,5 +429,5 @@ class DocumentFormattingService:
             if status_code == 503:
                 raise HTTPException(status_code=503, detail="Gemini is temporarily overloaded. Please try again in a moment.") from exc
             raise HTTPException(status_code=502, detail="Document formatting is temporarily unavailable. Please try again.") from exc
-        structured = cls._validate_result(parsed)
+        structured = cls._validate_result(parsed, required_source_ids=required_source_ids)
         return structured, cls._to_html(structured)
