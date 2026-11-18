@@ -990,3 +990,100 @@ def test_divorce_petition_catalog_requests_full_formal_structure():
         "Verification section",
     ]:
         assert phrase.lower() in outline.lower()
+
+
+
+def test_legal_formatting_retries_once_when_model_changes_source_wording(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    outputs = [
+        {"blocks": [{
+            "type": "paragraph",
+            "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+            "source_segment_ids": ["SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"],
+        }]},
+        {"blocks": [
+            {"type": "title", "text": "विवाह विच्छेदासाठी अर्ज"},
+            {"type": "heading", "text": "अर्जदाराचा तपशील"},
+            {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+            {"type": "heading", "text": "विवाहाचा तपशील"},
+            {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी झाला.", "source_segment_ids": ["SOURCE_SEGMENT_0002"]},
+        ]},
+    ]
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def __init__(self, output):
+            self.output = output
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(self.output, ensure_ascii=False)}]}}]}
+
+    def fake_post(_url, **kwargs):
+        calls.append(kwargs["json"])
+        return Response(outputs[len(calls) - 1])
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    structured, html = DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    assert len(calls) == 2
+    assert "STRICT CORRECTION" in calls[1]["systemInstruction"]["parts"][0]["text"]
+    assert source in html
+    assert structured["blocks"][-1]["text"] == "विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+
+
+def test_legal_formatting_uses_verbatim_fallback_when_corrective_retry_fails(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    invalid = {"blocks": [{
+        "type": "paragraph",
+        "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+        "source_segment_ids": ["SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"],
+    }]}
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(invalid, ensure_ascii=False)}]}}]}
+
+    def fake_post(_url, **_kwargs):
+        calls.append(True)
+        return Response()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    structured, html = DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    factual_blocks = [
+        block["text"] for block in structured["blocks"]
+        if block["type"] == "paragraph"
+    ]
+    assert len(calls) == 2
+    assert factual_blocks == [
+        "राहुल शर्मा पुणे येथे राहतो.",
+        "विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+    ]
+    assert source.replace(" ", "") in html.replace(" ", "")
