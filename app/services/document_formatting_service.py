@@ -265,8 +265,8 @@ class DocumentFormattingService:
                 for index, line in enumerate(source_lines, start=1)
             ]
             required_source_ids = {segment["id"] for segment in source_segments}
-            user_source = "\\n".join(
-                f"[{segment['id']}]\\n{segment['text']}" for segment in source_segments
+            user_source = "\n".join(
+                f"[{segment['id']}]\n{segment['text']}" for segment in source_segments
             )
             sections = legal_context.get("format_sections") or []
             section_outline = "\n".join(f"- {section}" for section in sections)
