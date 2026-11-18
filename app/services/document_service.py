@@ -390,12 +390,8 @@ class DocumentService:
         document.deleted_at = datetime.now(timezone.utc)
         document.deleted_by = uuid.UUID(user.id)
         db.commit()
-        failures = cls._delete_document_drive_backups(db, document)
-        return {
-            "message": "Document moved to Trash.",
-            "drive_cleanup_pending": bool(failures),
-            "pending_drive_files": len(failures),
-        }
+        db.commit()
+        return {"message": "Document moved to Trash.", "restore_days": 30}
 
     @classmethod
     def list_trash(cls, db: Session, user, page: int = 1, page_size: int = 10):
@@ -410,11 +406,9 @@ class DocumentService:
             "items": [{
                 "id": item.id, "title": item.title, "owner_user_id": item.owner_user_id,
                 "deleted_at": item.deleted_at, "deleted_by": item.deleted_by,
-                "drive_cleanup_pending": bool(
-                    item.drive_file_id
-                    or db.query(DocumentFormatVersion.id).filter(DocumentFormatVersion.document_id == item.id, DocumentFormatVersion.drive_file_id.isnot(None)).first()
-                    or db.query(AudioRecording.id).filter(AudioRecording.document_id == item.id, AudioRecording.drive_file_id.isnot(None)).first()
-                ),
+                "drive_cleanup_pending": False,
+                "expires_at": item.deleted_at + __import__("datetime").timedelta(days=30) if item.deleted_at else None,
+                "days_remaining": max(0, 30 - ((datetime.now(timezone.utc) - (item.deleted_at.replace(tzinfo=timezone.utc) if item.deleted_at and item.deleted_at.tzinfo is None else item.deleted_at)).days)) if item.deleted_at else 30,
                 "created_at": item.created_at, "updated_at": item.updated_at,
             } for item in items],
             "pagination": {
@@ -428,6 +422,9 @@ class DocumentService:
         document = cls._get_account_document(db, document_id, user, include_deleted=True)
         if not document.is_deleted:
             raise HTTPException(status_code=409, detail="Document is not in Trash.")
+        deleted_at = document.deleted_at.replace(tzinfo=timezone.utc) if document.deleted_at and document.deleted_at.tzinfo is None else document.deleted_at
+        if deleted_at and deleted_at + __import__("datetime").timedelta(days=30) <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="The 30-day restore period has expired.")
         document.is_deleted = False
         document.deleted_at = None
         document.deleted_by = None
@@ -477,15 +474,6 @@ class DocumentService:
         version.is_deleted = True
         version.deleted_at = datetime.now(timezone.utc)
         version.deleted_by = uuid.UUID(user.id)
-        if version.drive_file_id:
-            try:
-                GoogleDriveService.delete_drive_file(db, str(document.owner_user_id), version.drive_file_id)
-                version.drive_file_id = None
-                version.drive_web_view_link = None
-                version.backup_status = "not_backed_up"
-            except HTTPException:
-                db.commit()
-                raise HTTPException(status_code=502, detail="Version moved to Trash, but its Google Drive backup could not be deleted. Retry from Version Trash.")
         db.commit()
         return {"message": "Formatted version moved to Trash."}
 
@@ -499,6 +487,9 @@ class DocumentService:
         ).first()
         if version is None:
             raise HTTPException(status_code=404, detail="Deleted formatted version not found.")
+        deleted_at = version.deleted_at.replace(tzinfo=timezone.utc) if version.deleted_at and version.deleted_at.tzinfo is None else version.deleted_at
+        if deleted_at and deleted_at + __import__("datetime").timedelta(days=30) <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="The 30-day restore period has expired.")
         version.is_deleted = False
         version.deleted_at = None
         version.deleted_by = None
@@ -521,6 +512,84 @@ class DocumentService:
         db.delete(version)
         db.commit()
         return {"message": "Formatted version permanently deleted."}
+
+
+    @classmethod
+    def list_all_deleted_versions(cls, db: Session, user):
+        account_id = cls._require_account(user)
+        query = db.query(DocumentFormatVersion, Document).join(
+            Document, Document.id == DocumentFormatVersion.document_id
+        ).filter(
+            Document.account_id == account_id,
+            DocumentFormatVersion.is_deleted.is_(True),
+            Document.is_deleted.is_(False),
+        )
+        if not cls._is_admin(user):
+            query = query.filter(Document.owner_user_id == uuid.UUID(user.id))
+        rows = query.order_by(DocumentFormatVersion.deleted_at.desc()).limit(500).all()
+        now = datetime.now(timezone.utc)
+        items = []
+        for version, document in rows:
+            deleted_at = version.deleted_at.replace(tzinfo=timezone.utc) if version.deleted_at and version.deleted_at.tzinfo is None else version.deleted_at
+            days = max(0, 30 - (now - deleted_at).days) if deleted_at else 30
+            items.append({
+                "id": version.id, "document_id": document.id, "document_title": document.title,
+                "version_number": version.version_number, "deleted_at": version.deleted_at,
+                "expires_at": deleted_at + __import__("datetime").timedelta(days=30) if deleted_at else None,
+                "days_remaining": days, "drive_cleanup_pending": bool(version.drive_file_id),
+            })
+        return {"items": items}
+
+    @classmethod
+    def purge_expired_trash(cls, db: Session) -> dict:
+        now = datetime.now(timezone.utc)
+        cutoff = now - __import__("datetime").timedelta(days=30)
+        deleted_documents = deleted_audio = deleted_versions = 0
+        documents = db.query(Document).filter(
+            Document.is_deleted.is_(True), Document.deleted_at <= cutoff
+        ).all()
+        for document in documents:
+            failures = cls._delete_document_drive_backups(db, document)
+            if failures:
+                continue
+            db.query(AudioRecording).filter(AudioRecording.document_id == document.id).delete(synchronize_session=False)
+            document.active_format_version_id = None
+            db.flush()
+            db.delete(document)
+            db.commit()
+            deleted_documents += 1
+
+        versions = db.query(DocumentFormatVersion).join(
+            Document, Document.id == DocumentFormatVersion.document_id
+        ).filter(
+            DocumentFormatVersion.is_deleted.is_(True),
+            DocumentFormatVersion.deleted_at <= cutoff,
+            Document.is_deleted.is_(False),
+        ).all()
+        for version in versions:
+            document = db.get(Document, version.document_id)
+            if version.drive_file_id:
+                try:
+                    GoogleDriveService.delete_drive_file(db, str(document.owner_user_id), version.drive_file_id)
+                except HTTPException:
+                    continue
+            db.delete(version)
+            db.commit()
+            deleted_versions += 1
+
+        audio_items = db.query(AudioRecording).filter(
+            AudioRecording.is_deleted.is_(True), AudioRecording.deleted_at <= cutoff
+        ).all()
+        for audio in audio_items:
+            if audio.drive_file_id:
+                try:
+                    GoogleDriveService.delete_drive_file(db, str(audio.user_id), audio.drive_file_id)
+                except HTTPException:
+                    continue
+            db.delete(audio)
+            db.commit()
+            deleted_audio += 1
+        return {"documents": deleted_documents, "audio": deleted_audio, "versions": deleted_versions}
 
     @classmethod
     def share(cls, db: Session, document_id: uuid.UUID, target_user_id: uuid.UUID, user, access_token: str):
