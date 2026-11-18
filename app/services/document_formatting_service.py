@@ -482,10 +482,22 @@ class DocumentFormattingService:
                         json=payload,
                         timeout=timeout,
                     )
-                except httpx.TimeoutException:
-                    # Preserve the primary failure for safe, actionable error mapping.
-                    if primary_error is not None and isinstance(primary_error, httpx.TimeoutException):
+                except httpx.TimeoutException as fallback_error:
+                    # Keep the most actionable provider failure when both attempts fail.
+                    # A primary 503 followed by a fallback timeout is still an overload;
+                    # a primary timeout followed by another timeout remains a gateway error.
+                    if isinstance(primary_error, httpx.TimeoutException):
                         raise primary_error
+                    primary_status = getattr(primary_error, "status_code", None)
+                    if primary_status in transient_statuses:
+                        logger.warning(
+                            "Gemini fallback timed out after primary transient response (primary_status=%s)",
+                            primary_status,
+                        )
+                        raise HTTPException(
+                            status_code=503,
+                            detail="Gemini is temporarily overloaded. Please try again in a moment.",
+                        ) from fallback_error
                     raise
 
             if response is None:
