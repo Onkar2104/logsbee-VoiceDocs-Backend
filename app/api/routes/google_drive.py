@@ -96,6 +96,7 @@ def backup_pending_files(
     from app.models.google_drive import AudioRecording
     pending_audio = db.query(AudioRecording).filter(
         AudioRecording.user_id == user_uuid,
+        AudioRecording.is_deleted.is_(False),
         AudioRecording.backup_status != "backed_up",
     ).order_by(AudioRecording.created_at.asc()).all()
 
@@ -231,7 +232,7 @@ def upload_recording(
 
     if document_id:
         linked_document = db.get(Document, document_id)
-        if not linked_document or str(linked_document.owner_user_id) != user.id:
+        if not linked_document or linked_document.is_deleted or str(linked_document.owner_user_id) != user.id:
             raise HTTPException(status_code=403, detail="Audio can only be attached to a document you own.")
 
     filename = file.filename or "browser-recording.webm"
