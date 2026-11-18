@@ -76,3 +76,6 @@ def test_divorce_petition_outline_uses_petition_specific_sections():
     assert any("Grounds" in section for section in outline)
     assert any("Each prayer or relief requested" in section for section in outline)
     assert any("verification" in section.lower() for section in outline)
+    assert any("Centered court caption" in section for section in outline)
+    assert any("separate blocks" in section for section in outline)
+    assert any("distinct prayer section" in section for section in outline)
