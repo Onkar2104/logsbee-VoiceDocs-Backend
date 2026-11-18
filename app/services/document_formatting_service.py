@@ -567,8 +567,13 @@ class DocumentFormattingService:
                 # Last-resort safe output: retain every original segment in
                 # sequence. Never return the model's altered legal wording.
                 source_segments = _split_legal_source_segments(source) or [source]
+                fallback_title = (
+                    "विवाह विच्छेदासाठी अर्ज"
+                    if legal_context.get("document_type_id") == "divorce-petition-draft"
+                    else legal_context["document_type_label"]
+                )
                 fallback_blocks = [
-                    {"type": "title", "text": legal_context["document_type_label"]}
+                    {"type": "title", "text": fallback_title}
                 ]
                 fallback_blocks.extend(
                     {
