@@ -120,8 +120,8 @@ class DocumentService:
         if search and search.strip():
             term = search.strip()
             query = query.filter(
-                Document.title.ilike(f"%{term}%", autoescape=True)
-                | Document.content.ilike(f"%{term}%", autoescape=True)
+                Document.title.ilike(f"%{term}%")
+                | Document.content.ilike(f"%{term}%")
             )
         if legal_category:
             query = query.filter(Document.legal_category == legal_category)
