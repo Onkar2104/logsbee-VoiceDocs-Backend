@@ -390,7 +390,6 @@ class DocumentService:
         document.deleted_at = datetime.now(timezone.utc)
         document.deleted_by = uuid.UUID(user.id)
         db.commit()
-        db.commit()
         return {"message": "Document moved to Trash.", "restore_days": 30}
 
     @classmethod
