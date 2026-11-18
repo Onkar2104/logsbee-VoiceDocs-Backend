@@ -1159,6 +1159,39 @@ def test_gemini_fallback_timeout_preserves_primary_failure_classification(
         assert "temporarily unavailable" in error.value.detail
 
 
+def test_divorce_petition_layout_normalizer_removes_duplicate_relief_heading_and_joins_honorific():
+    source = {
+        "blocks": [
+            {"type": "heading", "text": "स्वतंत्र राहण्याचा तपशील"},
+            {"type": "number", "text": "विभक्त राहण्याचा तपशील."},
+            {"type": "heading", "text": "मागणी"},
+            {"type": "number", "text": "विवाह विच्छेदाचा दिलासा मिळावा, अशी विनंती आहे."},
+            {"type": "heading", "text": "कागदपत्रे व पुरावे"},
+            {"type": "number", "text": "कागदपत्रे सादर करण्यात येतील."},
+            {
+                "type": "paragraph",
+                "text": "म्हणून मा.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0003"],
+            },
+            {
+                "type": "number",
+                "text": "न्यायालयास विनंती आहे की योग्य तो आदेश पारित करावा.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0004"],
+            },
+            {"type": "heading", "text": "प्रार्थना"},
+        ]
+    }
+
+    result = DocumentFormattingService._normalize_divorce_petition_layout(source)
+    headings = [block["text"] for block in result["blocks"] if block["type"] == "heading"]
+    joined = next(block for block in result["blocks"] if "म्हणून मा." in block["text"])
+
+    assert "मागणी" not in headings
+    assert headings.count("प्रार्थना") == 1
+    assert joined["text"] == "म्हणून मा. न्यायालयास विनंती आहे की योग्य तो आदेश पारित करावा."
+    assert joined["source_segment_ids"] == ["SOURCE_SEGMENT_0003", "SOURCE_SEGMENT_0004"]
+
+
 def test_divorce_petition_fallback_adds_structure_without_changing_marathi_source():
     from app.services.document_formatting_service import DocumentFormattingService
 
