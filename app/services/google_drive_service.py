@@ -402,6 +402,31 @@ class GoogleDriveService:
         return response.content, item.file_name, item.mime_type
 
     @staticmethod
+    def delete_drive_file(db: Session, owner_user_id: str, drive_file_id: str) -> None:
+        """Permanently remove a VoiceDocs-owned backup from the document owner's Drive."""
+        if not drive_file_id:
+            return
+        connection = GoogleDriveService.connection(db, owner_user_id)
+        if not connection:
+            raise HTTPException(
+                status_code=409,
+                detail="Reconnect the document owner's Google Drive to remove its backup.",
+            )
+        token = GoogleDriveService._access_token(db, connection)
+        try:
+            response = httpx.delete(
+                f"{DRIVE_API}/files/{drive_file_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            # A missing file is already in the desired deleted state.
+            if response.status_code == 404:
+                return
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="A Google Drive backup could not be deleted.") from exc
+
+    @staticmethod
     def delete(db: Session, user_id: str, recording_id: uuid.UUID) -> None:
         item = db.scalar(select(AudioRecording).where(
             AudioRecording.id == recording_id,
