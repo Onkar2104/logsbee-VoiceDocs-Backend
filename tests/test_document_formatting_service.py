@@ -378,9 +378,9 @@ def test_formatting_uses_stable_flash_fallback_after_primary_503(monkeypatch):
     monkeypatch.setattr(httpx, "post", fake_post)
     result, html = DocumentFormattingService.format_transcript("Meeting notes")
 
-    assert len(calls) == 4
-    assert all("gemini-3.8-flash" in url for url in calls[:3])
-    assert "gemini-3.6-flash" in calls[3]
+    assert len(calls) == 3
+    assert all("gemini-3.8-flash" in url for url in calls[:2])
+    assert "gemini-3.6-flash" in calls[2]
     assert result["blocks"][0]["text"] == "Fallback formatting worked"
     assert "Fallback formatting worked" in html
 
@@ -440,8 +440,8 @@ def test_formatting_returns_retryable_503_after_transient_retries(monkeypatch):
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("Meeting notes")
 
-    # Three primary-model attempts plus one fallback-model attempt.
-    assert calls["count"] == 4
+    # Two primary-model attempts plus one fallback-model attempt.
+    assert calls["count"] == 3
     assert error.value.status_code == 503
     assert "temporarily overloaded" in error.value.detail
 
@@ -725,7 +725,7 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
 
         def json(self):
             return {"candidates": [{"content": {"parts": [{"text": json.dumps({
-                "blocks": [{"type": "paragraph", "text": "Formatted complete draft"}]
+                "blocks": [{"type": "paragraph", "text": "Formatted complete draft", "source_segment_ids": ["SOURCE_SEGMENT_0001"]}]
             })}]}}]}
 
     def fake_post(_url, **kwargs):
@@ -733,7 +733,7 @@ def test_legal_formatting_prompt_preserves_all_source_details_and_separate_relie
         return SuccessResponse()
 
     monkeypatch.setattr(httpx, "post", fake_post)
-    context = get_legal_context("india", "family-matrimonial-law", "divorce-petition-draft")
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
     source = (
         "याचिकाकर्ता व्यवसायाने शिक्षक आहे आणि पुणे येथे राहतो. "
         "पहिली घटना १२ जानेवारी रोजी घडली. दुसरी घटना १८ जानेवारी रोजी घडली. "
