@@ -660,3 +660,48 @@ def test_gemini_primary_service_unavailable_retries_then_uses_fallback(monkeypat
     assert len(calls) == 3
     assert "gemini-3.6-flash:generateContent" in calls[-1]
     assert structured["blocks"][0]["text"] == "Fallback worked"
+
+
+def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "title", "text": "विवाह विच्छेद याचिका"},
+                    {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
+                    {"type": "paragraph", "text": "[याचिकाकर्त्याचे नाव]"},
+                    {"type": "heading", "text": "प्रार्थना"},
+                    {"type": "paragraph", "text": "दिलेल्या माहितीनुसार मागितलेला दिलासा."},
+                ]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured.update(kwargs["json"])
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    DocumentFormattingService.format_transcript("लग्नाची माहिती आणि घटस्फोटाची मागणी", legal_context=context)
+
+    prompt = captured["systemInstruction"]["parts"][0]["text"]
+    assert "Divorce Petition Draft" in prompt
+    assert "Petitioner particulars" in prompt
+    assert "Respondent particulars" in prompt
+    assert "Chronology of matrimonial facts" in prompt
+    assert "Reliefs or prayers sought" in prompt
+    assert "MUST transform the source into that document type" in prompt
+    assert "Never invent facts" in prompt
