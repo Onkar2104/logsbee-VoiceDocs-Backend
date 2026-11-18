@@ -1203,6 +1203,8 @@ def test_divorce_petition_fallback_adds_structure_without_changing_marathi_sourc
     assert "प्रतिवादीचा तपशील" in headings
     assert "विवाहाचा तपशील" in headings
     assert "प्रार्थना" in headings
+    assert headings.count("प्रार्थना") == 1
+    assert "मागणी" not in headings
     assert any(block["type"] == "number" for block in blocks)
     joined_prayer = [
         block for block in blocks
