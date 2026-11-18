@@ -8,13 +8,25 @@ from PIL import Image
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 
 
 class _HtmlToDocx(HTMLParser):
-    def __init__(self):
+    def __init__(self, legal_mode: bool = False):
         super().__init__(convert_charrefs=True)
         self.document = Document()
+        self.legal_mode = legal_mode
+        if legal_mode:
+            section = self.document.sections[0]
+            section.top_margin = Inches(1)
+            section.bottom_margin = Inches(1)
+            section.left_margin = Inches(1.25)
+            section.right_margin = Inches(1)
+            normal = self.document.styles["Normal"]
+            normal.font.name = "Times New Roman"
+            normal.font.size = Pt(12)
+            normal.paragraph_format.line_spacing = 1.5
+            normal.paragraph_format.space_after = Pt(6)
         self.parts = []
         self.bold = self.italic = self.underline = False
         self.list_stack = []
@@ -31,6 +43,19 @@ class _HtmlToDocx(HTMLParser):
                 run.bold, run.italic, run.underline = bold, italic, underline
             if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
                 paragraph.style = f"Heading {min(int(tag[1]), 3)}"
+            if self.legal_mode:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if tag == "h1" else WD_ALIGN_PARAGRAPH.LEFT
+                    paragraph.paragraph_format.keep_with_next = True
+                    for run in paragraph.runs:
+                        run.font.name = "Times New Roman"
+                        run.bold = True
+                        run.font.size = Pt(14 if tag == "h1" else 12)
+                else:
+                    for run in paragraph.runs:
+                        run.font.name = "Times New Roman"
+                        run.font.size = Pt(12)
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
@@ -86,8 +111,8 @@ class _HtmlToDocx(HTMLParser):
             self.parts.append((data, self.bold, self.italic, self.underline))
 
 
-def html_to_docx(content: str) -> bytes:
-    parser = _HtmlToDocx()
+def html_to_docx(content: str, legal_mode: bool = False) -> bytes:
+    parser = _HtmlToDocx(legal_mode=legal_mode)
     parser.feed(content or "")
     parser.close()
     if parser.parts:
