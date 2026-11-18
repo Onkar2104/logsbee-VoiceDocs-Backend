@@ -45,6 +45,8 @@ class _HtmlToDocx(HTMLParser):
                 paragraph.style = f"Heading {min(int(tag[1]), 3)}"
             if self.legal_mode:
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                paragraph.paragraph_format.line_spacing = 1.5
+                paragraph.paragraph_format.space_after = Pt(6)
                 if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if tag == "h1" else WD_ALIGN_PARAGRAPH.LEFT
                     paragraph.paragraph_format.keep_with_next = True
