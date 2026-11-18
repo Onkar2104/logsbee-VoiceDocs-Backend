@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,7 +17,49 @@ from app.models.user_preferences import UserPreferences
 from app.models.user_settings import UserSettings
 from app.core.config import settings
 
+
+logger = logging.getLogger(__name__)
+_trash_purge_task = None
+
+
+async def _purge_expired_trash_periodically():
+    from app.db.session import SessionLocal
+    from app.services.document_service import DocumentService
+
+    while True:
+        db = SessionLocal()
+        try:
+            result = DocumentService.purge_expired_trash(db)
+            if any(result.values()):
+                logger.info("Expired VoiceDocs Trash items permanently deleted: %s", result)
+        except Exception:
+            db.rollback()
+            logger.exception("Scheduled VoiceDocs Trash cleanup failed")
+        finally:
+            db.close()
+        await asyncio.sleep(3600)
+
+
 app = FastAPI(title=settings.app_name, debug=settings.debug, version="0.1.0")
+
+
+@app.on_event("startup")
+async def start_trash_cleanup():
+    global _trash_purge_task
+    _trash_purge_task = asyncio.create_task(_purge_expired_trash_periodically())
+
+
+@app.on_event("shutdown")
+async def stop_trash_cleanup():
+    global _trash_purge_task
+    if _trash_purge_task:
+        _trash_purge_task.cancel()
+        try:
+            await _trash_purge_task
+        except asyncio.CancelledError:
+            pass
+        _trash_purge_task = None
+
 
 app.add_middleware(
     CORSMiddleware,
