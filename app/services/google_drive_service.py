@@ -338,9 +338,9 @@ class GoogleDriveService:
     @staticmethod
     def recordings(db: Session, user_id: str, page: int = 1, page_size: int = 10) -> dict:
         user_uuid = GoogleDriveService._user_id(user_id)
-        base_query = select(AudioRecording).where(AudioRecording.user_id == user_uuid)
+        base_query = select(AudioRecording).where(AudioRecording.user_id == user_uuid, AudioRecording.is_deleted.is_(False))
         total_records = db.scalar(
-            select(func.count()).select_from(AudioRecording).where(AudioRecording.user_id == user_uuid)
+            select(func.count()).select_from(AudioRecording).where(AudioRecording.user_id == user_uuid, AudioRecording.is_deleted.is_(False))
         ) or 0
         items = list(db.scalars(
             base_query.order_by(AudioRecording.created_at.desc(), AudioRecording.id.desc())
@@ -365,6 +365,7 @@ class GoogleDriveService:
         item = db.scalar(select(AudioRecording).where(
             AudioRecording.id == recording_id,
             AudioRecording.user_id == GoogleDriveService._user_id(user_id),
+            AudioRecording.is_deleted.is_(False),
         ))
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
@@ -425,6 +426,86 @@ class GoogleDriveService:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="A Google Drive backup could not be deleted.") from exc
+
+
+    @staticmethod
+    def _can_manage_recording(db: Session, item: AudioRecording, user) -> bool:
+        if item.user_id == GoogleDriveService._user_id(user.id):
+            return True
+        if item.document_id:
+            from app.models.document import Document
+            from app.services.document_service import DocumentService
+            document = db.query(Document).filter(
+                Document.id == item.document_id,
+                Document.account_id == DocumentService._require_account(user),
+            ).first()
+            return bool(document and DocumentService._is_admin(user))
+        return False
+
+    @staticmethod
+    def trash_recording(db: Session, recording_id: uuid.UUID, user) -> dict:
+        item = db.get(AudioRecording, recording_id)
+        if not item or not GoogleDriveService._can_manage_recording(db, item, user):
+            raise HTTPException(status_code=404, detail="Audio recording not found.")
+        if item.is_deleted:
+            raise HTTPException(status_code=409, detail="Audio recording is already in Trash.")
+        item.is_deleted = True
+        item.deleted_at = datetime.now(timezone.utc)
+        item.deleted_by = GoogleDriveService._user_id(user.id)
+        db.commit()
+        return {"message": "Audio recording moved to Trash.", "id": item.id}
+
+    @staticmethod
+    def list_audio_trash(db: Session, user, page: int = 1, page_size: int = 10) -> dict:
+        from app.models.document import Document
+        from app.services.document_service import DocumentService
+        account_id = DocumentService._require_account(user)
+        query = db.query(AudioRecording).filter(AudioRecording.is_deleted.is_(True))
+        if DocumentService._is_admin(user):
+            query = query.outerjoin(Document, AudioRecording.document_id == Document.id).filter(
+                (Document.account_id == account_id) | (AudioRecording.user_id == GoogleDriveService._user_id(user.id))
+            )
+        else:
+            query = query.filter(AudioRecording.user_id == GoogleDriveService._user_id(user.id))
+        total = query.count()
+        items = query.order_by(AudioRecording.deleted_at.desc(), AudioRecording.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        pages = (total + page_size - 1) // page_size
+        return {"items": [{
+            "id": item.id, "file_name": item.file_name, "file_size": item.file_size,
+            "mime_type": item.mime_type, "document_id": item.document_id,
+            "deleted_at": item.deleted_at,
+            "drive_cleanup_pending": bool(item.drive_file_id),
+            "expires_at": item.deleted_at + timedelta(days=30) if item.deleted_at else None,
+            "days_remaining": max(0, (30 - (datetime.now(timezone.utc) - (item.deleted_at.replace(tzinfo=timezone.utc) if item.deleted_at.tzinfo is None else item.deleted_at)).days)) if item.deleted_at else 30,
+        } for item in items], "pagination": {
+            "page": page, "page_size": page_size, "total_records": total,
+            "total_pages": pages, "has_next": page < pages, "has_previous": page > 1,
+        }}
+
+    @staticmethod
+    def restore_recording(db: Session, recording_id: uuid.UUID, user) -> dict:
+        item = db.get(AudioRecording, recording_id)
+        if not item or not item.is_deleted or not GoogleDriveService._can_manage_recording(db, item, user):
+            raise HTTPException(status_code=404, detail="Deleted audio recording not found.")
+        deleted_at = item.deleted_at.replace(tzinfo=timezone.utc) if item.deleted_at and item.deleted_at.tzinfo is None else item.deleted_at
+        if deleted_at and deleted_at + timedelta(days=30) <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="The 30-day restore period has expired.")
+        item.is_deleted = False
+        item.deleted_at = None
+        item.deleted_by = None
+        db.commit()
+        return {"message": "Audio recording restored.", "id": item.id}
+
+    @staticmethod
+    def permanently_delete_recording(db: Session, recording_id: uuid.UUID, user) -> dict:
+        item = db.get(AudioRecording, recording_id)
+        if not item or not item.is_deleted or not GoogleDriveService._can_manage_recording(db, item, user):
+            raise HTTPException(status_code=404, detail="Deleted audio recording not found.")
+        if item.drive_file_id:
+            GoogleDriveService.delete_drive_file(db, str(item.user_id), item.drive_file_id)
+        db.delete(item)
+        db.commit()
+        return {"message": "Audio recording permanently deleted."}
 
     @staticmethod
     def delete(db: Session, user_id: str, recording_id: uuid.UUID) -> None:
