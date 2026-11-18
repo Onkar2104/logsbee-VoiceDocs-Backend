@@ -1089,3 +1089,50 @@ def test_legal_formatting_uses_verbatim_fallback_when_corrective_retry_fails(mon
     ]
     assert "".join("".join(block.split()) for block in factual_blocks) == "".join(source.split())
     assert "विवाह विच्छेदासाठी अर्ज" in html
+
+
+@pytest.mark.parametrize(
+    ("primary_failure", "expected_status"),
+    [
+        ("service_unavailable", 503),
+        ("timeout", 502),
+    ],
+)
+def test_gemini_fallback_timeout_preserves_primary_failure_classification(
+    monkeypatch, primary_failure, expected_status
+):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _seconds: None)
+    calls = []
+
+    class ServiceUnavailableResponse:
+        status_code = 503
+        headers = {}
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                "service unavailable",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(503),
+            )
+
+    def fake_post(url, **_kwargs):
+        calls.append(url)
+        if primary_failure == "service_unavailable" and len(calls) <= 2:
+            return ServiceUnavailableResponse()
+        raise httpx.ReadTimeout("provider timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("A short source document.")
+
+    assert error.value.status_code == expected_status
+    assert len(calls) == 3
+    if expected_status == 503:
+        assert "temporarily overloaded" in error.value.detail
+    else:
+        assert "temporarily unavailable" in error.value.detail
