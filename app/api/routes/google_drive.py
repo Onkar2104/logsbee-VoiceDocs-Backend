@@ -147,6 +147,34 @@ def list_recordings(
     }
 
 
+@router.get("/recordings/trash")
+def list_audio_trash(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.list_audio_trash(db, user, page, page_size)
+
+
+@router.post("/recordings/{recording_id}/restore")
+def restore_audio_recording(
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.restore_recording(db, recording_id, user)
+
+
+@router.delete("/recordings/{recording_id}/permanent")
+def permanently_delete_audio_recording(
+    recording_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return GoogleDriveService.permanently_delete_recording(db, recording_id, user)
+
+
 @router.post("/recordings/{recording_id}/backup")
 def backup_recording(
     recording_id: uuid.UUID,
