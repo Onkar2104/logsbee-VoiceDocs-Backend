@@ -349,6 +349,46 @@ def list_documents(
     )
 
 
+@router.get("/trash")
+def list_document_trash(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    return DocumentService.list_trash(db, user, page, page_size)
+
+
+@router.post("/{document_id}/restore")
+def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.restore_document(db, document_id, user)
+
+
+@router.delete("/{document_id}/permanent")
+def permanently_delete_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.permanently_delete_document(db, document_id, user)
+
+
+@router.get("/{document_id}/versions/trash")
+def list_deleted_document_versions(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.list_deleted_versions(db, document_id, user)
+
+
+@router.delete("/{document_id}/versions/{version_id}")
+def delete_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.delete_version(db, document_id, version_id, user)
+
+
+@router.post("/{document_id}/versions/{version_id}/restore")
+def restore_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.restore_version(db, document_id, version_id, user)
+
+
+@router.delete("/{document_id}/versions/{version_id}/permanent")
+def permanently_delete_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+    return DocumentService.permanently_delete_version(db, document_id, version_id, user)
+
+
 @router.get("/sharing-summary")
 def get_sharing_summary(db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     return DocumentService.get_sharing_summary(db, user)
