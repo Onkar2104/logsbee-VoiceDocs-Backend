@@ -205,8 +205,8 @@ def delete_recording(
     db: Session = Depends(get_db),
     user: LogsbeeUserContext = Depends(get_current_user),
 ):
-    GoogleDriveService.delete(db, user.id, recording_id)
-    return {"message": "Recording deleted from Google Drive and VoiceDocs."}
+    GoogleDriveService.trash_recording(db, recording_id, user)
+    return {"message": "Recording moved to Trash. It can be restored for 30 days."}
 
 
 
