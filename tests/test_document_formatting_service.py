@@ -1136,3 +1136,50 @@ def test_gemini_fallback_timeout_preserves_primary_failure_classification(
         assert "temporarily overloaded" in error.value.detail
     else:
         assert "temporarily unavailable" in error.value.detail
+
+
+def test_divorce_petition_fallback_adds_structure_without_changing_marathi_source():
+    from app.services.document_formatting_service import DocumentFormattingService
+
+    source = (
+        "विवाह विच्छेदासाठी अर्ज\n"
+        "मा.\n"
+        "कौटुंबिक न्यायालय, पुणे येथे\n"
+        "विवाह विच्छेदासाठी अर्ज\n"
+        "अर्जदार: श्री.\n"
+        "राहुल शर्मा, वय ३४ वर्षे, राहणार [पूर्ण पत्ता].\n"
+        "विरुद्ध प्रतिवादी: सौ.\n"
+        "प्रिया शर्मा, वय ३१ वर्षे, राहणार [पूर्ण पत्ता].\n"
+        "अर्जदार व प्रतिवादी यांचा विवाह दिनांक १५ फेब्रुवारी २०१८ रोजी पुणे येथे पारंपरिक पद्धतीने संपन्न झाला.\n"
+        "विवाहानंतर दोघेही पुणे येथे एकत्र राहत होते.\n"
+        "सुरुवातीला त्यांचे वैवाहिक जीवन सुरळीत होते.\n"
+        "कालांतराने दोघांमध्ये कौटुंबिक जबाबदाऱ्या, आर्थिक व्यवहार आणि वैयक्तिक मतभेदांमुळे वारंवार वाद होऊ लागले.\n"
+        "दोघांमध्ये समेट घडवून आणण्यासाठी कुटुंबीयांनी प्रयत्न केले.\n"
+        "मात्र, सदर प्रयत्नांना यश आले नाही.\n"
+        "अर्जदार व प्रतिवादी दिनांक [वेगळे राहण्याची तारीख] पासून स्वतंत्र राहत आहेत.\n"
+        "सदर वैवाहिक संबंध पुढे सुरू ठेवणे शक्य नसल्याचे अर्जदाराचे म्हणणे आहे.\n"
+        "त्यामुळे अर्जदारास लागू कायद्यानुसार विवाह विच्छेदाचा दिलासा मिळावा, अशी विनंती आहे.\n"
+        "या प्रकरणातील आवश्यक कागदपत्रे व पुरावे न्यायालयासमोर सादर करण्यात येतील.\n"
+        "म्हणून मा.\n"
+        "न्यायालयास विनंती आहे की, लागू कायदेशीर तरतुदी व उपलब्ध पुराव्यांच्या आधारे विवाह विच्छेदाबाबत योग्य तो आदेश पारित करावा."
+    )
+
+    structured = DocumentFormattingService._build_divorce_petition_fallback(source)
+    validated = DocumentFormattingService._validate_result(
+        structured,
+        required_source_ids={
+            f"SOURCE_SEGMENT_{index:04d}"
+            for index, _ in enumerate(source.splitlines(), start=1)
+        },
+        required_source_text=source,
+    )
+    blocks = validated["blocks"]
+    titles = [block for block in blocks if block["type"] == "title"]
+    headings = [block["text"] for block in blocks if block["type"] == "heading"]
+    assert len(titles) == 1
+    assert "मा. कौटुंबिक न्यायालय, पुणे येथे" in headings
+    assert "अर्जदाराचा तपशील" in headings
+    assert "प्रतिवादीचा तपशील" in headings
+    assert "विवाहाचा तपशील" in headings
+    assert "प्रार्थना" in headings
+    assert any(block["type"] == "number" for block in blocks)
