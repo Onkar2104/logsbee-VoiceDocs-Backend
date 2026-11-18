@@ -512,6 +512,7 @@ class GoogleDriveService:
         item = db.scalar(select(AudioRecording).where(
             AudioRecording.id == recording_id,
             AudioRecording.user_id == GoogleDriveService._user_id(user_id),
+            AudioRecording.is_deleted.is_(False),
         ))
         if not item:
             raise HTTPException(status_code=404, detail="Recording not found.")
