@@ -291,19 +291,38 @@ def test_formatting_requires_server_api_key(monkeypatch):
     assert error.value.status_code == 503
 
 
-def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch):
+def test_formatting_maps_gemini_rate_limit_to_retryable_error(monkeypatch, caplog):
     import httpx
+    import logging
     from app.core.config import settings
 
-    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(settings, "gemini_api_key", "test-secret-api-key")
 
     class RateLimitedResponse:
         status_code = 429
+        headers = {"Retry-After": "30"}
+
+        def json(self):
+            return {
+                "error": {
+                    "status": "RESOURCE_EXHAUSTED",
+                    "message": "Quota exceeded for this project. key=test-secret-api-key",
+                }
+            }
 
     monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: RateLimitedResponse())
-    with pytest.raises(HTTPException) as error:
-        DocumentFormattingService.format_transcript("Meeting notes")
+    with caplog.at_level(logging.WARNING, logger="app.services.document_formatting_service"):
+        with pytest.raises(HTTPException) as error:
+            DocumentFormattingService.format_transcript("Meeting notes")
+
     assert error.value.status_code == 429
+    assert "Gemini rate limit received" in caplog.text
+    assert "model=gemini-3.8-flash" in caplog.text
+    assert "RESOURCE_EXHAUSTED" in caplog.text
+    assert "Quota exceeded for this project." in caplog.text
+    assert "retry_after=30" in caplog.text
+    assert "test-secret-api-key" not in caplog.text
+    assert "[REDACTED]" in caplog.text
 
 
 
@@ -378,9 +397,9 @@ def test_formatting_uses_stable_flash_fallback_after_primary_503(monkeypatch):
     monkeypatch.setattr(httpx, "post", fake_post)
     result, html = DocumentFormattingService.format_transcript("Meeting notes")
 
-    assert len(calls) == 4
-    assert all("gemini-3.8-flash" in url for url in calls[:3])
-    assert "gemini-3.6-flash" in calls[3]
+    assert len(calls) == 3
+    assert all("gemini-3.8-flash" in url for url in calls[:2])
+    assert "gemini-3.6-flash" in calls[2]
     assert result["blocks"][0]["text"] == "Fallback formatting worked"
     assert "Fallback formatting worked" in html
 
@@ -440,8 +459,8 @@ def test_formatting_returns_retryable_503_after_transient_retries(monkeypatch):
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("Meeting notes")
 
-    # Three primary-model attempts plus one fallback-model attempt.
-    assert calls["count"] == 4
+    # Two primary-model attempts plus one fallback-model attempt.
+    assert calls["count"] == 3
     assert error.value.status_code == 503
     assert "temporarily overloaded" in error.value.detail
 
@@ -579,3 +598,654 @@ def test_replacing_formatted_drive_version_updates_existing_docx(monkeypatch):
     with ZipFile(BytesIO(captured["content"].split(b"PK", 1)[0] + b"PK" + captured["content"].split(b"PK", 1)[1])) as archive:
         assert "word/document.xml" in archive.namelist()
         assert b"Updated notes" in archive.read("word/document.xml")
+
+
+def test_gemini_primary_timeouts_attempt_fallback_model(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    import app.services.document_formatting_service as formatting_module
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(formatting_module.time, "sleep", lambda *_args: None)
+
+    class FormattedResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Formatted safely"}]
+            })}]}}]}
+
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        if len(calls) <= 2:
+            raise httpx.ReadTimeout("temporary primary timeout")
+        return FormattedResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    structured, html = DocumentFormattingService.format_transcript("Original text")
+
+    assert len(calls) == 3
+    assert "gemini-3.8-flash:generateContent" in calls[0]
+    assert "gemini-3.8-flash:generateContent" in calls[1]
+    assert "gemini-3.6-flash:generateContent" in calls[2]
+    assert structured["blocks"][0]["text"] == "Formatted safely"
+    assert "Formatted safely" in html
+
+
+def test_gemini_primary_service_unavailable_retries_then_uses_fallback(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    import app.services.document_formatting_service as formatting_module
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(formatting_module.time, "sleep", lambda *_args: None)
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    "temporary service error",
+                    request=httpx.Request("POST", "https://example.test"),
+                    response=httpx.Response(self.status_code),
+                )
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Fallback worked"}]
+            })}]}}]}
+
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return Response(503 if len(calls) <= 2 else 200)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    structured, _ = DocumentFormattingService.format_transcript("Original text")
+
+    assert len(calls) == 3
+    assert "gemini-3.6-flash:generateContent" in calls[-1]
+    assert structured["blocks"][0]["text"] == "Fallback worked"
+
+
+def test_legal_formatting_prompt_requires_selected_document_type_outline(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "title", "text": "विवाह विच्छेद याचिका"},
+                    {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
+                    {"type": "paragraph", "text": "[याचिकाकर्त्याचे नाव]"},
+                    {"type": "heading", "text": "प्रार्थना"},
+                    {"type": "paragraph", "text": "लग्नाची माहिती आणि घटस्फोटाची मागणी", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+                ]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured.update(kwargs["json"])
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    DocumentFormattingService.format_transcript("लग्नाची माहिती आणि घटस्फोटाची मागणी", legal_context=context)
+
+    prompt = captured["systemInstruction"]["parts"][0]["text"]
+    assert "Divorce Petition Draft" in prompt
+    assert "Petitioner particulars" in prompt
+    assert "Respondent particulars" in prompt
+    assert "Chronological statement of all matrimonial facts" in prompt
+    assert "Each prayer or relief requested" in prompt
+    assert "MUST transform the source into that document type" in prompt
+    assert "Never invent facts" in prompt
+
+
+def test_legal_formatting_prompt_preserves_all_source_details_and_separate_reliefs(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    source = (
+        "याचिकाकर्ता व्यवसायाने शिक्षक आहे आणि पुणे येथे राहतो. "
+        "पहिली घटना १२ जानेवारी रोजी घडली. दुसरी घटना १८ जानेवारी रोजी घडली. "
+        "प्रार्थना १: घटस्फोटाचा हुकूम द्यावा. "
+        "प्रार्थना २: खर्च मंजूर करावा. "
+        "प्रार्थना ३: योग्य इतर दिलासा द्यावा."
+    )
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{
+                    "type": "paragraph",
+                    "text": source,
+                    "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}" for index in range(1, 7)],
+                }]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured["payload"] = kwargs["json"]
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
+    assert "NOT summarization" in instruction
+    assert "Do not shorten the source" in instruction
+    assert "occupation, address" in instruction
+    assert "each separate prayer" in instruction
+    assert "never collapse multiple reliefs" in instruction
+    assert "silently cross-check it against the source" in instruction
+    assert "Chronological statement of all matrimonial facts" in instruction
+    assert "Each prayer or relief requested" in instruction
+    assert source in captured["payload"]["contents"][0]["parts"][0]["text"]
+    assert "[SOURCE_SEGMENT_0001]" in captured["payload"]["contents"][0]["parts"][0]["text"]
+
+
+
+def test_legal_structured_output_rejects_missing_source_segments():
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "Only part of the draft", "source_segment_ids": ["SOURCE_SEGMENT_0001"]}]},
+            required_source_ids={"SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"},
+        )
+
+    assert error.value.status_code == 502
+    assert "omitted part" in error.value.detail
+
+
+def test_legal_structured_output_rejects_unknown_source_segment():
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "Draft", "source_segment_ids": ["SOURCE_SEGMENT_9999"]}]},
+            required_source_ids={"SOURCE_SEGMENT_0001"},
+        )
+
+    assert error.value.status_code == 502
+    assert "invalid source references" in error.value.detail
+
+
+def test_legal_structured_output_accepts_complete_source_coverage():
+    result = DocumentFormattingService._validate_result(
+        {"blocks": [
+            {"type": "paragraph", "text": "पहिला मुद्दा", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+            {"type": "paragraph", "text": "दुसरा मुद्दा", "source_segment_ids": ["SOURCE_SEGMENT_0002"]},
+        ]},
+        required_source_ids={"SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"},
+    )
+
+    assert len(result["blocks"]) == 2
+
+
+
+def test_legal_docx_export_uses_formal_page_layout_and_typography():
+    from io import BytesIO
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx(
+        "<h1>विवाह विच्छेद याचिका</h1>"
+        "<h2>याचिकाकर्त्याचा तपशील</h2>"
+        "<p>याचिकाकर्ता पुणे येथे राहतो.</p>",
+        legal_mode=True,
+    )
+    document = Document(BytesIO(output))
+    section = document.sections[0]
+
+    assert round(section.top_margin.inches, 2) == 1.0
+    assert round(section.bottom_margin.inches, 2) == 1.0
+    assert round(section.left_margin.inches, 2) == 1.25
+    assert round(section.right_margin.inches, 2) == 1.0
+    assert document.paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert document.paragraphs[1].alignment == WD_ALIGN_PARAGRAPH.LEFT
+    assert document.paragraphs[2].alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.paragraphs[2].runs[0].font.name == "Times New Roman"
+    assert document.paragraphs[2].runs[0].font.size.pt == 12
+    assert document.paragraphs[2].paragraph_format.line_spacing == 1.5
+
+
+def test_general_docx_export_keeps_default_layout():
+    from io import BytesIO
+
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from app.services.docx_converter import html_to_docx
+
+    output = html_to_docx("<p>General document paragraph.</p>")
+    document = Document(BytesIO(output))
+
+    default_document = Document()
+    assert document.paragraphs[0].alignment != WD_ALIGN_PARAGRAPH.JUSTIFY
+    assert document.sections[0].left_margin == default_document.sections[0].left_margin
+    assert document.paragraphs[0].paragraph_format.line_spacing is None
+
+
+
+def test_legal_source_is_split_into_sentence_level_traceable_segments():
+    from app.services.document_formatting_service import _split_legal_source_segments
+
+    source = "विवाह 15.02.2018 रोजी झाला. पहिली घटना १२ जानेवारीला घडली.\nदुसरी घटना नंतर घडली."
+    assert _split_legal_source_segments(source) == [
+        "विवाह 15.02.2018 रोजी झाला.",
+        "पहिली घटना १२ जानेवारीला घडली.",
+        "दुसरी घटना नंतर घडली.",
+    ]
+
+
+def test_legal_output_rejects_reworded_or_omitted_source_even_when_ids_are_claimed():
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{
+                "type": "paragraph",
+                "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0001"],
+            }]},
+            required_source_ids={"SOURCE_SEGMENT_0001"},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "changed, added, or omitted" in error.value.detail
+
+
+def test_legal_output_rejects_omitted_date_even_when_other_wording_is_preserved():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [{"type": "paragraph", "text": "विवाह २०१८ रोजी पुणे येथे झाला."}]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
+
+
+def test_legal_output_rejects_invented_dates_numbers_or_amounts():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [
+                {"type": "heading", "text": "विवाहाचा तपशील"},
+                {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला. अर्ज क्रमांक १२/२०२६."},
+            ]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
+
+
+def test_legal_output_rejects_invented_case_number_in_heading():
+    source = "विवाह १५ फेब्रुवारी २०१८ रोजी पुणे येथे झाला."
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService._validate_result(
+            {"blocks": [
+                {"type": "heading", "text": "केस क्रमांक १२/२०२६"},
+                {"type": "paragraph", "text": source},
+            ]},
+            required_source_text=source,
+        )
+    assert error.value.status_code == 502
+    assert "date, number, or amount" in error.value.detail
+
+
+def test_legal_output_accepts_source_text_with_added_structural_headings_and_placeholders():
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    result = DocumentFormattingService._validate_result(
+        {"blocks": [
+            {"type": "heading", "text": "याचिकाकर्त्याचा तपशील"},
+            {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो."},
+            {"type": "heading", "text": "विवाहाचा तपशील"},
+            {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी झाला. [Marriage Registration Number]"},
+        ]},
+        required_source_text=source,
+    )
+    assert len(result["blocks"]) == 4
+
+
+
+def test_divorce_petition_prompt_targets_gemini_style_structure_without_legal_assumptions(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "title", "text": "विवाह विच्छेदासाठी अर्ज"},
+                    {"type": "heading", "text": "अर्जदार"},
+                    {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+                ]
+            })}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured["payload"] = kwargs["json"]
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    DocumentFormattingService.format_transcript(
+        "राहुल शर्मा पुणे येथे राहतो.", legal_context=context
+    )
+
+    instruction = captured["payload"]["systemInstruction"]["parts"][0]["text"]
+    required_phrases = [
+        "centered court caption",
+        "petitioner and respondent particulars in separate blocks",
+        "distinct विनंती (Prayer) section",
+        "सत्यापन (Verification)",
+        "[विवाह याचिका क्रमांक]",
+        "uncompleted template only",
+        "never assert that the applicant swears",
+        "do not assert territorial jurisdiction",
+        "preserve every source factual sentence verbatim",
+        "Never add a prayer for costs",
+        "do not create separate headings named मागणी and प्रार्थना when they repeat the same requested relief",
+        "join the fragment and that sentence into one continuous paragraph",
+        "Never assume the applicable personal law",
+    ]
+    for phrase in required_phrases:
+        assert phrase in instruction
+    assert "Hindu Marriage Act" not in instruction
+
+
+def test_divorce_petition_catalog_requests_full_formal_structure():
+    from app.services.legal_document_catalog import get_legal_context
+
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    outline = " ".join(context["format_sections"])
+    for phrase in [
+        "Centered court caption",
+        "separate blocks",
+        "Subject line",
+        "Numbered sections",
+        "distinct prayer section",
+        "Verification section",
+    ]:
+        assert phrase.lower() in outline.lower()
+
+
+
+def test_legal_formatting_retries_once_when_model_changes_source_wording(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    outputs = [
+        {"blocks": [{
+            "type": "paragraph",
+            "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+            "source_segment_ids": ["SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"],
+        }]},
+        {"blocks": [
+            {"type": "title", "text": "विवाह विच्छेदासाठी अर्ज"},
+            {"type": "heading", "text": "अर्जदाराचा तपशील"},
+            {"type": "paragraph", "text": "राहुल शर्मा पुणे येथे राहतो.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+            {"type": "heading", "text": "विवाहाचा तपशील"},
+            {"type": "paragraph", "text": "विवाह १५ फेब्रुवारी २०१८ रोजी झाला.", "source_segment_ids": ["SOURCE_SEGMENT_0002"]},
+        ]},
+    ]
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def __init__(self, output):
+            self.output = output
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(self.output, ensure_ascii=False)}]}}]}
+
+    def fake_post(_url, **kwargs):
+        calls.append(kwargs["json"])
+        return Response(outputs[len(calls) - 1])
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    structured, html = DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    assert len(calls) == 2
+    assert "STRICT CORRECTION" in calls[1]["systemInstruction"]["parts"][0]["text"]
+    assert "राहुल शर्मा पुणे येथे राहतो." in html
+    assert "विवाह १५ फेब्रुवारी २०१८ रोजी झाला." in html
+    assert structured["blocks"][-1]["text"] == "विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+
+
+def test_legal_formatting_uses_verbatim_fallback_when_corrective_retry_fails(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+    from app.services.legal_document_catalog import get_legal_context
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    source = "राहुल शर्मा पुणे येथे राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
+    invalid = {"blocks": [{
+        "type": "paragraph",
+        "text": "राहुल शर्मा पुण्यात राहतो. विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+        "source_segment_ids": ["SOURCE_SEGMENT_0001", "SOURCE_SEGMENT_0002"],
+    }]}
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps(invalid, ensure_ascii=False)}]}}]}
+
+    def fake_post(_url, **_kwargs):
+        calls.append(True)
+        return Response()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", "family-matrimonial-law", "divorce-petition-draft")
+    structured, html = DocumentFormattingService.format_transcript(source, legal_context=context)
+
+    factual_blocks = [
+        block["text"] for block in structured["blocks"]
+        if block["type"] in {"paragraph", "number", "bullet", "quote"}
+    ]
+    assert len(calls) == 2
+    assert factual_blocks == [
+        "राहुल शर्मा पुणे येथे राहतो.",
+        "विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
+    ]
+    assert "".join("".join(block.split()) for block in factual_blocks) == "".join(source.split())
+    assert "विवाह विच्छेदासाठी अर्ज" in html
+
+
+@pytest.mark.parametrize(
+    ("primary_failure", "expected_status"),
+    [
+        ("service_unavailable", 503),
+        ("timeout", 502),
+    ],
+)
+def test_gemini_fallback_timeout_preserves_primary_failure_classification(
+    monkeypatch, primary_failure, expected_status
+):
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _seconds: None)
+    calls = []
+
+    class ServiceUnavailableResponse:
+        status_code = 503
+        headers = {}
+
+        def raise_for_status(self):
+            raise httpx.HTTPStatusError(
+                "service unavailable",
+                request=httpx.Request("POST", "https://example.test"),
+                response=httpx.Response(503),
+            )
+
+    def fake_post(url, **_kwargs):
+        calls.append(url)
+        if primary_failure == "service_unavailable" and len(calls) <= 2:
+            return ServiceUnavailableResponse()
+        raise httpx.ReadTimeout("provider timed out")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript("A short source document.")
+
+    assert error.value.status_code == expected_status
+    assert len(calls) == 3
+    if expected_status == 503:
+        assert "temporarily overloaded" in error.value.detail
+    else:
+        assert "temporarily unavailable" in error.value.detail
+
+
+def test_divorce_petition_layout_normalizer_removes_duplicate_relief_heading_and_joins_honorific():
+    source = {
+        "blocks": [
+            {"type": "heading", "text": "स्वतंत्र राहण्याचा तपशील"},
+            {"type": "number", "text": "विभक्त राहण्याचा तपशील."},
+            {"type": "heading", "text": "मागणी"},
+            {"type": "number", "text": "विवाह विच्छेदाचा दिलासा मिळावा, अशी विनंती आहे."},
+            {"type": "heading", "text": "कागदपत्रे व पुरावे"},
+            {"type": "number", "text": "कागदपत्रे सादर करण्यात येतील."},
+            {
+                "type": "paragraph",
+                "text": "म्हणून मा.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0003"],
+            },
+            {
+                "type": "number",
+                "text": "न्यायालयास विनंती आहे की योग्य तो आदेश पारित करावा.",
+                "source_segment_ids": ["SOURCE_SEGMENT_0004"],
+            },
+            {"type": "heading", "text": "प्रार्थना"},
+        ]
+    }
+
+    result = DocumentFormattingService._normalize_divorce_petition_layout(source)
+    headings = [block["text"] for block in result["blocks"] if block["type"] == "heading"]
+    joined = next(block for block in result["blocks"] if "म्हणून मा." in block["text"])
+
+    assert "मागणी" not in headings
+    assert headings.count("प्रार्थना") == 1
+    assert joined["text"] == "म्हणून मा. न्यायालयास विनंती आहे की योग्य तो आदेश पारित करावा."
+    assert joined["source_segment_ids"] == ["SOURCE_SEGMENT_0003", "SOURCE_SEGMENT_0004"]
+
+
+def test_divorce_petition_fallback_adds_structure_without_changing_marathi_source():
+    from app.services.document_formatting_service import DocumentFormattingService
+
+    source = (
+        "विवाह विच्छेदासाठी अर्ज\n"
+        "मा.\n"
+        "कौटुंबिक न्यायालय, पुणे येथे\n"
+        "विवाह विच्छेदासाठी अर्ज\n"
+        "अर्जदार: श्री.\n"
+        "राहुल शर्मा, वय ३४ वर्षे, राहणार [पूर्ण पत्ता].\n"
+        "विरुद्ध प्रतिवादी: सौ.\n"
+        "प्रिया शर्मा, वय ३१ वर्षे, राहणार [पूर्ण पत्ता].\n"
+        "अर्जदार व प्रतिवादी यांचा विवाह दिनांक १५ फेब्रुवारी २०१८ रोजी पुणे येथे पारंपरिक पद्धतीने संपन्न झाला.\n"
+        "विवाहानंतर दोघेही पुणे येथे एकत्र राहत होते.\n"
+        "सुरुवातीला त्यांचे वैवाहिक जीवन सुरळीत होते.\n"
+        "कालांतराने दोघांमध्ये कौटुंबिक जबाबदाऱ्या, आर्थिक व्यवहार आणि वैयक्तिक मतभेदांमुळे वारंवार वाद होऊ लागले.\n"
+        "दोघांमध्ये समेट घडवून आणण्यासाठी कुटुंबीयांनी प्रयत्न केले.\n"
+        "मात्र, सदर प्रयत्नांना यश आले नाही.\n"
+        "अर्जदार व प्रतिवादी दिनांक [वेगळे राहण्याची तारीख] पासून स्वतंत्र राहत आहेत.\n"
+        "सदर वैवाहिक संबंध पुढे सुरू ठेवणे शक्य नसल्याचे अर्जदाराचे म्हणणे आहे.\n"
+        "त्यामुळे अर्जदारास लागू कायद्यानुसार विवाह विच्छेदाचा दिलासा मिळावा, अशी विनंती आहे.\n"
+        "या प्रकरणातील आवश्यक कागदपत्रे व पुरावे न्यायालयासमोर सादर करण्यात येतील.\n"
+        "म्हणून मा.\n"
+        "न्यायालयास विनंती आहे की, लागू कायदेशीर तरतुदी व उपलब्ध पुराव्यांच्या आधारे विवाह विच्छेदाबाबत योग्य तो आदेश पारित करावा."
+    )
+
+    structured = DocumentFormattingService._build_divorce_petition_fallback(source)
+    validated = DocumentFormattingService._validate_result(
+        structured,
+        required_source_ids={
+            f"SOURCE_SEGMENT_{index:04d}"
+            for index, _ in enumerate(source.splitlines(), start=1)
+        },
+        required_source_text=source,
+    )
+    blocks = validated["blocks"]
+    titles = [block for block in blocks if block["type"] == "title"]
+    headings = [block["text"] for block in blocks if block["type"] == "heading"]
+    assert len(titles) == 1
+    assert "मा. कौटुंबिक न्यायालय, पुणे येथे" in headings
+    assert "अर्जदाराचा तपशील" in headings
+    assert "प्रतिवादीचा तपशील" in headings
+    assert "विवाहाचा तपशील" in headings
+    assert "प्रार्थना" in headings
+    assert headings.count("प्रार्थना") == 1
+    assert "मागणी" not in headings
+    assert any(block["type"] == "number" for block in blocks)
+    joined_prayer = [
+        block for block in blocks
+        if block["type"] == "number" and "म्हणून मा." in block["text"]
+    ]
+    assert len(joined_prayer) == 1
+    assert "म्हणून मा. न्यायालयास विनंती आहे की" in joined_prayer[0]["text"]
+    assert joined_prayer[0]["source_segment_ids"] == [
+        f"SOURCE_SEGMENT_{index:04d}"
+        for index in range(19, 21)
+    ]

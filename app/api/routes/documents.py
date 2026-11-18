@@ -24,11 +24,16 @@ from app.schemas.document import (
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.document_service import DocumentService
 from app.services.docx_converter import html_to_docx
+from app.services.legal_document_catalog import get_legal_catalog, get_legal_context
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
+
+@router.get("/legal-catalog")
+def get_document_legal_catalog(user: LogsbeeUserContext = Depends(get_current_user)):
+    return get_legal_catalog()
 
 
 def _require_format_edit_access(db: Session, document, user):
@@ -60,7 +65,10 @@ def export_document_docx(
         raise HTTPException(status_code=422, detail="Document content must be HTML text.")
     safe_html, _ = sanitize_editor_html(content_html)
     try:
-        docx_bytes = html_to_docx(f'<h1>{html_escape(document.title)}</h1>{safe_html}')
+        docx_bytes = html_to_docx(
+            f'<h1>{html_escape(document.title)}</h1>{safe_html}',
+            legal_mode=getattr(document, "formatting_mode", "general") == "legal",
+        )
     except Exception as exc:
         logger.exception("DOCX export failed (exception_type=%s)", type(exc).__name__)
         raise HTTPException(status_code=500, detail="The Word document could not be generated. Please try again.") from exc
@@ -80,14 +88,20 @@ def export_document_docx(
 
 
 @router.post("/{document_id}/format")
-def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
+def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
     source = DocumentService._with_content(db, document).content
     images = {}
     if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
         source, images = DocumentFormattingService.prepare_source_with_image_placeholders(source)
-    structured, html = DocumentFormattingService.format_transcript(source)
+    legal_context = None
+    if document.formatting_mode == "legal":
+        try:
+            legal_context = get_legal_context(document.jurisdiction, document.legal_category, document.document_type)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail="Select a valid India legal category and document type before formatting.") from exc
+    structured, html = DocumentFormattingService.format_transcript(source, legal_context=legal_context)
     if images:
         html = DocumentFormattingService.restore_embedded_images(html, images)
     document = _lock_document_for_version_write(db, document)
@@ -99,6 +113,10 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
         version_number=(latest.version_number + 1) if latest else 1,
         content_json=structured,
         content_html=html,
+        legal_metadata=({
+            "formatting_mode": "legal",
+            **legal_context,
+        } if legal_context else {"formatting_mode": "general"}),
         created_by=uuid.UUID(user.id),
     )
     db.add(version)
@@ -126,6 +144,7 @@ def format_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
         "version_number": version.version_number,
         "content_json": version.content_json,
         "content_html": version.content_html,
+        "legal_metadata": version.legal_metadata,
         "backup_status": version.backup_status,
         "created_at": version.created_at,
     }
@@ -149,7 +168,17 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
         logger.exception("Formatted-version sanitization failed (exception_type=%s)", type(exc).__name__)
         raise HTTPException(status_code=422, detail="Formatted content could not be validated. Please try again.") from exc
     latest = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.document_id == document.id).order_by(DocumentFormatVersion.version_number.desc()).first()
-    version = DocumentFormatVersion(document_id=document.id, version_number=(latest.version_number + 1) if latest else 1, content_json={"blocks": [{"type": "paragraph", "text": plain_text}]}, content_html=html, created_by=uuid.UUID(user.id))
+    version = DocumentFormatVersion(
+        document_id=document.id,
+        version_number=(latest.version_number + 1) if latest else 1,
+        content_json={"blocks": [{"type": "paragraph", "text": plain_text}]},
+        content_html=html,
+        legal_metadata=(
+            {"formatting_mode": "legal", **get_legal_context(document.jurisdiction, document.legal_category, document.document_type)}
+            if document.formatting_mode == "legal" else {"formatting_mode": "general"}
+        ),
+        created_by=uuid.UUID(user.id),
+    )
     db.add(version)
     db.flush()
     document.active_format_version_id = version.id
@@ -169,7 +198,7 @@ def create_document_version(document_id: uuid.UUID, payload: dict, db: Session =
         except HTTPException:
             db.rollback()
             version = db.query(DocumentFormatVersion).filter(DocumentFormatVersion.id == version.id).first()
-    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at}
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "legal_metadata": version.legal_metadata, "backup_status": version.backup_status, "created_at": version.created_at}
 
 @router.put("/{document_id}/versions/{version_id}")
 def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payload: dict, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
@@ -184,6 +213,10 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
         raise HTTPException(status_code=422, detail="A valid formatted document is required.")
     version.content_json = {"blocks": [{"type": "paragraph", "text": plain_text}]}
     version.content_html = html
+    version.legal_metadata = (
+        {"formatting_mode": "legal", **get_legal_context(document.jurisdiction, document.legal_category, document.document_type)}
+        if document.formatting_mode == "legal" else {"formatting_mode": "general"}
+    )
     version.updated_at = datetime.now(timezone.utc)
     version.backup_status = "not_backed_up"
     document.active_format_version_id = version.id
@@ -214,7 +247,7 @@ def replace_document_version(document_id: uuid.UUID, version_id: uuid.UUID, payl
                 DocumentFormatVersion.document_id == document.id,
             ).first()
     db.refresh(version)
-    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
+    return {"id": version.id, "version_number": version.version_number, "content_json": version.content_json, "content_html": version.content_html, "legal_metadata": version.legal_metadata, "backup_status": version.backup_status, "created_at": version.created_at, "updated_at": version.updated_at}
 
 @router.post("/{document_id}/versions/{version_id}/backup")
 def backup_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
@@ -270,6 +303,7 @@ def get_document_version(document_id: uuid.UUID, version_id: uuid.UUID, db: Sess
         "version_number": version.version_number,
         "content_json": version.content_json,
         "content_html": version.content_html,
+        "legal_metadata": version.legal_metadata,
         "backup_status": version.backup_status,
         "created_at": version.created_at,
         "updated_at": version.updated_at,
