@@ -1040,7 +1040,8 @@ def test_legal_formatting_retries_once_when_model_changes_source_wording(monkeyp
 
     assert len(calls) == 2
     assert "STRICT CORRECTION" in calls[1]["systemInstruction"]["parts"][0]["text"]
-    assert source in html
+    assert "राहुल शर्मा पुणे येथे राहतो." in html
+    assert "विवाह १५ फेब्रुवारी २०१८ रोजी झाला." in html
     assert structured["blocks"][-1]["text"] == "विवाह १५ फेब्रुवारी २०१८ रोजी झाला."
 
 
@@ -1086,4 +1087,5 @@ def test_legal_formatting_uses_verbatim_fallback_when_corrective_retry_fails(mon
         "राहुल शर्मा पुणे येथे राहतो.",
         "विवाह १५ फेब्रुवारी २०१८ रोजी झाला.",
     ]
-    assert source.replace(" ", "") in html.replace(" ", "")
+    assert "".join("".join(block.split()) for block in factual_blocks) == "".join(source.split())
+    assert "विवाह विच्छेदासाठी अर्ज" in html
