@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.legal_document_catalog import (
+    DOCUMENT_TYPE_SECTIONS,
     LEGAL_CATEGORIES,
     get_legal_catalog,
     get_legal_context,
@@ -58,6 +59,7 @@ def test_each_selectable_document_type_has_a_specific_format_outline():
     for category in catalog["categories"]:
         for document_type in category["document_types"]:
             context = get_legal_context("IN", category["id"], document_type["id"])
+            assert document_type["id"] in DOCUMENT_TYPE_SECTIONS
             assert context["format_sections"], document_type["id"]
             assert context["document_type_label"] == document_type["label"]
 
