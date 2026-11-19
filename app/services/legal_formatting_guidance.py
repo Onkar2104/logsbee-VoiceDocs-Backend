@@ -138,7 +138,7 @@ def get_fallback_section_heading(legal_context: dict, source: str) -> str:
     english, marathi = _FALLBACK_SECTION_HEADINGS.get(
         family, ("Source content supplied", "दिलेला मूळ मजकूर")
     )
-    return marathi if re.search(r"[\\u0900-\\u097F]", source or "") else english
+    return marathi if re.search(r"[\u0900-\u097F]", source or "") else english
 
 
 def get_supported_document_type_ids() -> set[str]:
