@@ -119,6 +119,11 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
     if not isinstance(drafting_mode_value, bool):
         raise HTTPException(status_code=422, detail="The drafting_mode option must be true or false.")
     drafting_mode = drafting_mode_value
+    document_mode = payload.get("document_mode", "format")
+    if document_mode not in {"format", "draft"}:
+        raise HTTPException(status_code=422, detail="Choose either AI drafting or formatting-only mode.")
+    if drafting_mode and document_mode == "format":
+        document_mode = "draft"
 
     metadata_keys = {"formatting_mode", "jurisdiction", "legal_category", "document_type"}
     if metadata_keys.intersection(payload):
@@ -155,7 +160,11 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
     if drafting_mode and legal_context is None:
         raise HTTPException(status_code=422, detail="Select a legal document type before using legal drafting mode.")
     structured, html = DocumentFormattingService.format_transcript(
-        source, legal_context=legal_context, drafting_mode=drafting_mode
+        source,
+        legal_context=legal_context,
+        drafting_mode=drafting_mode,
+        document_mode=document_mode,
+        document_title=document.title,
     )
     if images:
         html = DocumentFormattingService.restore_embedded_images(html, images)
@@ -171,8 +180,12 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
         legal_metadata=({
             "formatting_mode": "legal",
             "drafting_mode": drafting_mode,
+            "document_mode": document_mode,
             **legal_context,
-        } if legal_context else {"formatting_mode": "general"}),
+        } if legal_context else {
+            "formatting_mode": "general",
+            "document_mode": document_mode,
+        }),
         created_by=uuid.UUID(user.id),
     )
     db.add(version)
