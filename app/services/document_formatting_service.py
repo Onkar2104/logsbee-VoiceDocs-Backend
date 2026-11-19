@@ -432,9 +432,9 @@ class DocumentFormattingService:
             if required_source_ids is not None:
                 source_ids = block.get("source_segment_ids", [])
                 if not isinstance(source_ids, list) or any(not isinstance(source_id, str) for source_id in source_ids):
-                    raise HTTPException(status_code=502, detail="The formatted legal document could not be checked against its source. Please try again.")
+                    raise HTTPException(status_code=502, detail="The formatted document could not be checked against its source. Please try again.")
                 if any(source_id not in required_source_ids for source_id in source_ids):
-                    raise HTTPException(status_code=502, detail="The formatted legal document returned invalid source references. Please try again.")
+                    raise HTTPException(status_code=502, detail="The formatted document returned invalid source references. Please try again.")
                 item["source_segment_ids"] = list(dict.fromkeys(source_ids))
             if item["type"] == "heading":
                 try:
@@ -449,7 +449,7 @@ class DocumentFormattingService:
             if required_source_ids - covered_source_ids:
                 raise HTTPException(
                     status_code=502,
-                    detail="The legal draft may have omitted part of the original text. Please try formatting again or retain the original text.",
+                    detail="The draft may have omitted part of the original information. Please try again or retain the original text.",
                 )
         if required_source_text is not None:
             # For legal documents this feature is formatting, not rewriting.
