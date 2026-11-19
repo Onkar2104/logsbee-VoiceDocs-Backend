@@ -101,7 +101,10 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
             legal_context = get_legal_context(document.jurisdiction, document.legal_category, document.document_type)
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=422, detail="Select a valid India legal category and document type before formatting.") from exc
-    drafting_mode = bool((payload or {}).get("drafting_mode", False)) if isinstance(payload, dict) else False
+    drafting_mode_value = (payload or {}).get("drafting_mode", False) if isinstance(payload, dict) else False
+    if not isinstance(drafting_mode_value, bool):
+        raise HTTPException(status_code=422, detail="The drafting_mode option must be true or false.")
+    drafting_mode = drafting_mode_value
     if drafting_mode and legal_context is None:
         raise HTTPException(status_code=422, detail="Select a legal document type before using legal drafting mode.")
     structured, html = DocumentFormattingService.format_transcript(
