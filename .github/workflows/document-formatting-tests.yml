@@ -5,6 +5,7 @@ on:
     branches:
       - feature/ai-document-formatting
       - feature/legal-formatting-quality-improvements
+      - feature/gemini-formatting-resilience
   pull_request:
     branches:
       - feature/ai-document-formatting
@@ -51,6 +52,7 @@ jobs:
       INDICCONFORMER_DEVICE: cpu
       GEMINI_API_KEY: ""
       DOCUMENT_AI_TIMEOUT_SECONDS: "5"
+      DOCUMENT_AI_FALLBACK_TIMEOUT_SECONDS: "5"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
