@@ -104,12 +104,16 @@ def test_cheque_notice_drafting_prompt_is_used_and_preserves_rewritten_segments(
     assert "DRAFTING MODE" in prompt
     assert "CHEQUE DISHONOUR LEGAL NOTICE" in prompt
     assert "VERBATIM FACTUAL CONTENT RULE" in prompt
+    assert "is superseded for this request" in prompt
     assert "माझ्या पक्षकार श्री. अमोल देशमुख" in html
     assert len(structured["blocks"]) == 3
 
 
-def test_drafting_mode_requires_a_legal_context():
+def test_drafting_mode_requires_a_legal_context(monkeypatch):
     from fastapi import HTTPException
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
 
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript(
