@@ -1371,3 +1371,20 @@ def test_general_ai_drafting_rejects_output_that_drops_a_source_segment(monkeypa
     paragraphs = [block["text"] for block in result["blocks"] if block["type"] == "paragraph"]
     assert paragraphs == ["First fact.", "Second fact."]
     assert calls["count"] == 2
+
+
+def test_general_ai_draft_rejects_changed_source_dates_and_amounts():
+    from app.services.document_formatting_service import _validate_draft_numeric_facts
+
+    source = "दिनांक 19/11/2026 रोजी ₹1,50,000/- रक्कम दिली."
+    changed = {
+        "blocks": [
+            {"type": "paragraph", "text": "दिनांक 15/11/2026 रोजी ₹1,50,000/- रक्कम दिली."}
+        ]
+    }
+
+    with pytest.raises(HTTPException) as error:
+        _validate_draft_numeric_facts(changed, source)
+
+    assert error.value.status_code == 502
+    assert "numbers" in error.value.detail
