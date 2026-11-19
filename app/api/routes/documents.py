@@ -24,7 +24,7 @@ from app.schemas.document import (
 from app.schemas.logsbee import LogsbeeUserContext
 from app.services.document_service import DocumentService
 from app.services.docx_converter import html_to_docx
-from app.services.legal_document_catalog import get_legal_catalog, get_legal_context
+from app.services.legal_document_catalog import get_legal_catalog, get_legal_context, validate_document_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,34 @@ def export_document_docx(
 def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
     _require_format_edit_access(db, document, user)
+    payload = payload if isinstance(payload, dict) else {}
+    drafting_mode_value = payload.get("drafting_mode", False)
+    if not isinstance(drafting_mode_value, bool):
+        raise HTTPException(status_code=422, detail="The drafting_mode option must be true or false.")
+    drafting_mode = drafting_mode_value
+
+    metadata_keys = {"formatting_mode", "jurisdiction", "legal_category", "document_type"}
+    if metadata_keys.intersection(payload):
+        candidate = {
+            "formatting_mode": payload.get("formatting_mode", document.formatting_mode),
+            "jurisdiction": payload.get("jurisdiction", document.jurisdiction),
+            "legal_category": payload.get("legal_category", document.legal_category),
+            "document_type": payload.get("document_type", document.document_type),
+        }
+        try:
+            normalized = validate_document_metadata(
+                candidate["formatting_mode"], candidate["jurisdiction"],
+                candidate["legal_category"], candidate["document_type"],
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        document.formatting_mode = normalized["formatting_mode"]
+        document.jurisdiction = normalized["jurisdiction"]
+        document.legal_category = normalized["legal_category"]
+        document.document_type = normalized["document_type"]
+        db.commit()
+        db.refresh(document)
+
     source = DocumentService._with_content(db, document).content
     images = {}
     if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
@@ -101,7 +129,11 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
             legal_context = get_legal_context(document.jurisdiction, document.legal_category, document.document_type)
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=422, detail="Select a valid India legal category and document type before formatting.") from exc
-    structured, html = DocumentFormattingService.format_transcript(source, legal_context=legal_context)
+    if drafting_mode and legal_context is None:
+        raise HTTPException(status_code=422, detail="Select a legal document type before using legal drafting mode.")
+    structured, html = DocumentFormattingService.format_transcript(
+        source, legal_context=legal_context, drafting_mode=drafting_mode
+    )
     if images:
         html = DocumentFormattingService.restore_embedded_images(html, images)
     document = _lock_document_for_version_write(db, document)
@@ -115,6 +147,7 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
         content_html=html,
         legal_metadata=({
             "formatting_mode": "legal",
+            "drafting_mode": drafting_mode,
             **legal_context,
         } if legal_context else {"formatting_mode": "general"}),
         created_by=uuid.UUID(user.id),

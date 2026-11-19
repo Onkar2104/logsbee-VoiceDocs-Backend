@@ -245,8 +245,14 @@ class DocumentService:
                     remote = GoogleDriveService.upload_document(
                         db, str(document.owner_user_id), str(document.id), document.title, original_content
                     )
-            except HTTPException:
-                raise HTTPException(status_code=502, detail="Google Drive is unavailable. Your document remains safely stored in VoiceDocs.")
+            except HTTPException as exc:
+                # Preserve the actionable Google Drive failure (for example,
+                # reconnect-required, token refresh, permission, or upload error)
+                # instead of replacing every failure with the same generic message.
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Google Drive backup failed: {exc.detail} Your document remains safely stored in VoiceDocs.",
+                ) from exc
             if not remote:
                 raise HTTPException(status_code=409, detail="Connect Google Drive to back up this document.")
             document.drive_file_id = remote["id"]

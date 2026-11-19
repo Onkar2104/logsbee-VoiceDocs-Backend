@@ -79,7 +79,35 @@ class GoogleDriveService:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Google OAuth request failed.") from exc
+            response = getattr(exc, "response", None)
+            google_error = ""
+            if response is not None:
+                try:
+                    payload = response.json()
+                    google_error = payload.get("error_description") or payload.get("error") or ""
+                except ValueError:
+                    google_error = ""
+            # Google returns invalid_grant when a refresh token has expired,
+            # been revoked, or is no longer valid. Give users a clear recovery step.
+            if response is not None and response.status_code == 400 and (
+                "invalid_grant" in str(getattr(response, "text", "")).lower()
+                or "expired or revoked" in google_error.lower()
+                or "token has been expired" in google_error.lower()
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "Your Google Drive connection has expired or been revoked. "
+                        "Reconnect Google Drive in Profile & Settings > Drive, then try the backup again."
+                    ),
+                ) from exc
+
+            reason = f" Google response: {google_error}." if google_error else ""
+            status_code = response.status_code if response is not None else 502
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google could not refresh your Drive connection (HTTP {status_code}).{reason}",
+            ) from exc
 
     @staticmethod
     def _drive_request(method: str, url: str, token: str, **kwargs) -> httpx.Response:
@@ -90,7 +118,24 @@ class GoogleDriveService:
             response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Google Drive request failed.") from exc
+            response = getattr(exc, "response", None)
+            google_error = ""
+            if response is not None:
+                try:
+                    payload = response.json()
+                    error_data = payload.get("error", {})
+                    if isinstance(error_data, dict):
+                        google_error = error_data.get("message") or error_data.get("status") or ""
+                    elif isinstance(error_data, str):
+                        google_error = error_data
+                except ValueError:
+                    google_error = ""
+            reason = f" Google response: {google_error}." if google_error else ""
+            status_code = response.status_code if response is not None else 502
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google Drive API request failed (HTTP {status_code}).{reason}",
+            ) from exc
 
     @staticmethod
     def _create_folder(token: str) -> str:
