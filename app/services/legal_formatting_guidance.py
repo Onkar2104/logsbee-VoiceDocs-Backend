@@ -3,6 +3,8 @@
 These are formatting instructions, not legal advice or prescribed court forms.
 """
 
+import re
+
 _DOCUMENT_TYPE_RULES = {
     "notice": {
         "legal-notice", "cheque-dishonour-notice", "loan-recovery-notice",
