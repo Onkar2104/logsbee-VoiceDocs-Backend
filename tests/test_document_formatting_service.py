@@ -459,10 +459,49 @@ def test_formatting_returns_retryable_503_after_transient_retries(monkeypatch):
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("Meeting notes")
 
-    # Two primary-model attempts plus one fallback-model attempt.
-    assert calls["count"] == 3
+    # Two primary-model attempts plus both fallback-model attempts.
+    assert calls["count"] == 4
     assert error.value.status_code == 503
     assert "temporarily overloaded" in error.value.detail
+
+def test_formatting_tries_last_resort_model_after_fallback_timeout(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = []
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [{"type": "paragraph", "text": "Last-resort model succeeded"}]
+            })}]}}]}
+
+    def fake_post(url, **_kwargs):
+        calls.append(url)
+        if "gemini-3.8-flash" in url:
+            request = httpx.Request("POST", url)
+            return httpx.Response(503, request=request)
+        if "gemini-3.6-flash" in url:
+            raise httpx.ReadTimeout("fallback model timeout")
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result, html = DocumentFormattingService.format_transcript("Meeting notes")
+
+    assert len(calls) == 4
+    assert "gemini-3.5-flash-lite" in calls[-1]
+    assert result["blocks"][0]["text"] == "Last-resort model succeeded"
+    assert "Last-resort model succeeded" in html
+
 
 def test_formatting_handles_provider_timeout_without_exposing_source(monkeypatch):
     import httpx
@@ -476,7 +515,7 @@ def test_formatting_handles_provider_timeout_without_exposing_source(monkeypatch
     monkeypatch.setattr(httpx, "post", timeout)
     with pytest.raises(HTTPException) as error:
         DocumentFormattingService.format_transcript("private transcript text")
-    assert error.value.status_code == 502
+    assert error.value.status_code == 503
     assert "private transcript text" not in error.value.detail
 
 

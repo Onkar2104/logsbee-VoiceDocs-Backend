@@ -622,107 +622,119 @@ class DocumentFormattingService:
             },
         }
         try:
-            # Retry one transient primary failure, then make one bounded attempt
-            # with a second stable Flash model. A primary read timeout must also
-            # trigger fallback; it must not skip fallback or leave response unset.
-            timeout = httpx.Timeout(
+            # Keep the primary model's existing retry, then try two independently
+            # bounded fallback models. A slow fallback must not block the last resort.
+            primary_timeout = httpx.Timeout(
                 connect=15.0,
                 read=settings.document_ai_timeout_seconds,
                 write=30.0,
                 pool=15.0,
             )
+            fallback_read_timeout = min(
+                settings.document_ai_timeout_seconds,
+                max(1.0, settings.document_ai_fallback_timeout_seconds),
+            )
+            fallback_timeout = httpx.Timeout(
+                connect=15.0,
+                read=fallback_read_timeout,
+                write=30.0,
+                pool=15.0,
+            )
             headers = {"x-goog-api-key": settings.gemini_api_key}
             transient_statuses = {500, 502, 503, 504}
+            fallback_models = ("gemini-3.6-flash", "gemini-3.5-flash-lite")
             response = None
             response_model = GEMINI_MODEL
-            primary_error = None
+            last_transient_response = None
+            last_timeout_error = None
 
-            for attempt in range(2):
-                try:
-                    response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
-                    primary_error = None
-                except httpx.TimeoutException as exc:
-                    primary_error = exc
-                    response = None
+            model_attempts = [(GEMINI_MODEL, primary_timeout, 2)]
+            model_attempts.extend(
+                (model, fallback_timeout, 1) for model in fallback_models
+            )
 
-                if response is not None:
-                    if response.status_code == 429:
-                        _log_gemini_rate_limit(response, GEMINI_MODEL)
+            for model_index, (model, request_timeout, max_attempts) in enumerate(model_attempts):
+                model_url = (
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                )
+                if model_index:
+                    logger.warning(
+                        "Gemini model unavailable; trying fallback (model=%s, fallback_index=%s)",
+                        model,
+                        model_index,
+                    )
+
+                for attempt in range(max_attempts):
+                    started_at = time.monotonic()
+                    try:
+                        candidate_response = httpx.post(
+                            model_url,
+                            headers=headers,
+                            json=payload,
+                            timeout=request_timeout,
+                        )
+                    except httpx.TimeoutException as exc:
+                        last_timeout_error = exc
+                        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                        logger.warning(
+                            "Gemini request timed out (model=%s, attempt=%s, elapsed_ms=%s)",
+                            model,
+                            attempt + 1,
+                            elapsed_ms,
+                        )
+                        if attempt + 1 < max_attempts:
+                            time.sleep(1.0)
+                        continue
+
+                    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                    if candidate_response.status_code == 429:
+                        _log_gemini_rate_limit(candidate_response, model)
                         raise HTTPException(
                             status_code=429,
                             detail="Document formatting is temporarily busy. Please try again later.",
                         )
-                    if response.status_code not in transient_statuses:
-                        break
-                    primary_error = None
-                    if attempt == 0:
-                        retry_after = response.headers.get("Retry-After")
-                        try:
-                            delay = min(5.0, max(0.0, float(retry_after))) if retry_after else 1.0
-                        except (TypeError, ValueError):
-                            delay = 1.0
-                        time.sleep(delay)
-                        continue
-                    primary_error = response
-                elif attempt == 0:
-                    time.sleep(2.0)
-                    continue
 
-                break
-
-            primary_unavailable = (
-                response is None and primary_error is not None
-            ) or (
-                response is not None and response.status_code in transient_statuses
-            )
-            if primary_unavailable:
-                fallback_model = "gemini-3.6-flash"
-                fallback_url = (
-                    "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{fallback_model}:generateContent"
-                )
-                primary_status = getattr(primary_error, "status_code", None)
-                logger.warning(
-                    "Primary Gemini model unavailable; attempting stable fallback model (primary_status=%s, primary_timeout=%s)",
-                    primary_status,
-                    isinstance(primary_error, httpx.TimeoutException),
-                )
-                try:
-                    response = httpx.post(
-                        fallback_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=timeout,
-                    )
-                    response_model = fallback_model
-                except httpx.TimeoutException as fallback_error:
-                    # Keep the most actionable provider failure when both attempts fail.
-                    # A primary 503 followed by a fallback timeout is still an overload;
-                    # a primary timeout followed by another timeout remains a gateway error.
-                    if isinstance(primary_error, httpx.TimeoutException):
-                        raise primary_error
-                    primary_status = getattr(primary_error, "status_code", None)
-                    if primary_status in transient_statuses:
+                    if candidate_response.status_code in transient_statuses:
+                        last_transient_response = candidate_response
+                        retry_after = candidate_response.headers.get("Retry-After")
                         logger.warning(
-                            "Gemini fallback timed out after primary transient response (primary_status=%s)",
-                            primary_status,
+                            "Gemini returned a transient provider error (model=%s, status=%s, attempt=%s, elapsed_ms=%s, retry_after=%s)",
+                            model,
+                            candidate_response.status_code,
+                            attempt + 1,
+                            elapsed_ms,
+                            retry_after,
                         )
-                        raise HTTPException(
-                            status_code=503,
-                            detail="Gemini is temporarily overloaded. Please try again in a moment.",
-                        ) from fallback_error
-                    raise
+                        if attempt + 1 < max_attempts:
+                            try:
+                                delay = min(10.0, max(0.0, float(retry_after))) if retry_after else 1.0
+                            except (TypeError, ValueError):
+                                delay = 1.0
+                            time.sleep(delay)
+                        continue
+
+                    response = candidate_response
+                    response_model = model
+                    break
+
+                if response is not None:
+                    break
 
             if response is None:
-                if isinstance(primary_error, httpx.TimeoutException):
-                    raise primary_error
-                raise httpx.ReadTimeout("Gemini did not return a response.")
-
-            if response.status_code == 429:
-                _log_gemini_rate_limit(response, response_model)
+                # A final provider 5xx is more actionable than a preceding timeout.
+                if last_transient_response is not None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Gemini is temporarily overloaded. Please try again in a moment.",
+                    )
+                if last_timeout_error is not None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Gemini did not respond in time. Please try again in a moment.",
+                    )
                 raise HTTPException(
-                    status_code=429,
-                    detail="Document formatting is temporarily busy. Please try again later.",
+                    status_code=503,
+                    detail="Document formatting is temporarily unavailable. Please try again.",
                 )
 
             response.raise_for_status()
