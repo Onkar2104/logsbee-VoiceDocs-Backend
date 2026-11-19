@@ -16,7 +16,10 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.services.legal_formatting_guidance import get_document_type_guidance
+from app.services.legal_formatting_guidance import (
+    get_document_type_guidance,
+    get_fallback_section_heading,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +231,29 @@ class DocumentFormattingService:
                 )
             formatted_html = formatted_html.replace(marker, image_html)
         return formatted_html
+
+    @staticmethod
+    def _build_legal_document_fallback(source: str, legal_context: dict) -> dict:
+        """Build a neutral family-specific layout while retaining every source segment."""
+        source_segments = _split_legal_source_segments(source) or [source]
+        return {
+            "blocks": [
+                {"type": "title", "text": legal_context["document_type_label"]},
+                {
+                    "type": "heading",
+                    "text": get_fallback_section_heading(legal_context, source),
+                    "level": 2,
+                },
+                *[
+                    {
+                        "type": "paragraph",
+                        "text": segment,
+                        "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}"],
+                    }
+                    for index, segment in enumerate(source_segments, start=1)
+                ],
+            ]
+        }
 
     @staticmethod
     def _build_divorce_petition_fallback(source: str) -> dict:
@@ -769,19 +795,9 @@ class DocumentFormattingService:
                 if legal_context.get("document_type_id") == "divorce-petition-draft":
                     fallback_content = cls._build_divorce_petition_fallback(source)
                 else:
-                    source_segments = _split_legal_source_segments(source) or [source]
-                    fallback_content = {
-                        "blocks": [
-                            {"type": "title", "text": legal_context["document_type_label"]}
-                        ] + [
-                            {
-                                "type": "paragraph",
-                                "text": segment,
-                                "source_segment_ids": [f"SOURCE_SEGMENT_{index:04d}"],
-                            }
-                            for index, segment in enumerate(source_segments, start=1)
-                        ]
-                    }
+                    fallback_content = cls._build_legal_document_fallback(
+                        source, legal_context
+                    )
                 structured = cls._validate_result(
                     fallback_content,
                     required_source_ids=required_source_ids,
