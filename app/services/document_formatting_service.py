@@ -674,7 +674,7 @@ class DocumentFormattingService:
             # Structured intake answers supplement the source without polluting it.
             details_json = json.dumps(additional_legal_details, ensure_ascii=False, separators=(",", ":"))
             user_source += (
-                "\\n\\nUSER-PROVIDED LEGAL DETAILS (structured factual values; not questions):\\n"
+                "\n\nUSER-PROVIDED LEGAL DETAILS (structured factual values; not questions):\n"
                 + details_json
             )
             system_instruction += (
