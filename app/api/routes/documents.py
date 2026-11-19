@@ -87,6 +87,28 @@ def export_document_docx(
     )
 
 
+@router.post("/{document_id}/legal-draft-preflight")
+def legal_draft_preflight(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    """Check for missing legal-draft intake details without generating or saving a version."""
+    from app.services.legal_draft_completeness import assess_legal_draft_completeness
+
+    document = DocumentService._get_visible_document(db, document_id, user)
+    if document.formatting_mode != "legal":
+        raise HTTPException(status_code=422, detail="Legal drafting preflight requires a legal document.")
+    try:
+        legal_context = get_legal_context(document.jurisdiction, document.legal_category, document.document_type)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Select a valid legal category and document type first.") from exc
+    source = DocumentService._with_content(db, document).content
+    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\\b", source, re.IGNORECASE):
+        source, _images = DocumentFormattingService.prepare_source_with_image_placeholders(source)
+    return assess_legal_draft_completeness(source, legal_context)
+
+
 @router.post("/{document_id}/format")
 def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
