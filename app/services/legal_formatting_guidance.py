@@ -115,6 +115,32 @@ def get_document_type_guidance(legal_context: dict) -> str:
     return _GENERIC_GUIDANCE
 
 
+_FALLBACK_SECTION_HEADINGS = {
+    "notice": ("Notice content supplied", "दिलेल्या नोटिशीचा मजकूर"),
+    "complaint": ("Complaint details supplied", "दिलेल्या तक्रारीचा तपशील"),
+    "representation": ("Representation details supplied", "दिलेल्या निवेदनाचा तपशील"),
+    "petition_or_application": ("Petition / application facts supplied", "दिलेल्या याचिका / अर्जातील तथ्ये"),
+    "affidavit": ("Statements supplied (not sworn)", "दिलेली निवेदने (शपथपूर्वक घोषित नाहीत)"),
+    "agreement": ("Agreement terms supplied", "दिलेल्या कराराच्या अटी"),
+    "reply": ("Reply content supplied", "दिलेल्या उत्तराचा मजकूर"),
+    "claim": ("Claim details supplied", "दिलेल्या दाव्याचा तपशील"),
+}
+
+
+def get_fallback_section_heading(legal_context: dict, source: str) -> str:
+    """Return a neutral family heading without inferring or inventing legal facts."""
+    document_type_id = legal_context.get("document_type_id", "")
+    family = next(
+        (name for name, document_types in _DOCUMENT_TYPE_RULES.items()
+         if document_type_id in document_types),
+        None,
+    )
+    english, marathi = _FALLBACK_SECTION_HEADINGS.get(
+        family, ("Source content supplied", "दिलेला मूळ मजकूर")
+    )
+    return marathi if re.search(r"[\\u0900-\\u097F]", source or "") else english
+
+
 def get_supported_document_type_ids() -> set[str]:
     """Expose configured IDs for catalogue-coverage tests."""
     return set().union(*_DOCUMENT_TYPE_RULES.values())
