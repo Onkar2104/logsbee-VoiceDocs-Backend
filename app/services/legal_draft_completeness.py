@@ -52,7 +52,7 @@ def assess_legal_draft_completeness(source: str, legal_context: dict) -> dict:
                 "बँकेचा चेक परत आल्याचा मेमो किंवा अनादराची माहिती तुम्हाला कोणत्या दिवशी मिळाली?",
                 "The date of receiving dishonour information is needed to assess the notice-issuance timeline; the dishonour date alone may not establish it.",
                 "नोटीस पाठविण्याची मुदत तपासण्यासाठी अनादराची माहिती मिळाल्याची तारीख आवश्यक आहे; फक्त चेक परत आल्याची तारीख पुरेशी नसेल.")
-        if not _has_any(source, (r"तीनs*महिने|3s*महिने|validity|वैधता",)):
+        if not _has_any(source, (r"तीन\s*महिने|3\s*महिने|validity|वैधता",)):
             add("cheque_validity_confirmation", "recommended_confirmation",
                 "Please confirm that the cheque was presented within its validity period.",
                 "धनादेश त्याच्या वैधता कालावधीत बँकेत सादर केला होता, याची कृपया पुष्टी करा.",
