@@ -32,7 +32,7 @@ def test_every_catalogue_document_type_has_specific_formatting_guidance(document
 
 
 def test_guidance_configuration_contains_only_catalogue_document_types():
-    assert get_supported_document_type_ids() <= CATALOGUE_DOCUMENT_TYPE_IDS
+    assert get_supported_document_type_ids() == CATALOGUE_DOCUMENT_TYPE_IDS
 
 
 @pytest.mark.parametrize(
