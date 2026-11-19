@@ -87,6 +87,21 @@ def _legal_numeric_tokens(value: str) -> Counter:
     """Capture numeric facts (including Indian-script digits and formatted dates/amounts)."""
     return Counter(re.findall(r"\d+(?:[.,:/-]\d+)*", value))
 
+def _validate_draft_numeric_facts(content: dict, source: str) -> None:
+    """Reject AI drafts that omit or alter source dates, amounts, IDs, or other numbers."""
+    source_numbers = _legal_numeric_tokens(source)
+    output_text = "\\n".join(
+        block["text"] for block in content.get("blocks", [])
+        if block.get("type") not in {"title", "heading"}
+    )
+    missing = source_numbers - _legal_numeric_tokens(output_text)
+    if missing:
+        raise HTTPException(
+            status_code=502,
+            detail="The AI draft changed or omitted one or more numbers from your original text. Please try again.",
+        )
+
+
 OUTPUT_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -804,6 +819,8 @@ class DocumentFormattingService:
                 required_source_ids=required_source_ids,
                 required_source_text=source if legal_context and not drafting_mode else None,
             )
+            if document_mode == "draft" and not legal_context:
+                _validate_draft_numeric_facts(structured, source)
         except HTTPException as validation_error:
             if not legal_context and document_mode != "draft":
                 raise
@@ -853,6 +870,8 @@ class DocumentFormattingService:
                     required_source_ids=required_source_ids,
                     required_source_text=source if legal_context and not drafting_mode else None,
                 )
+                if document_mode == "draft" and not legal_context:
+                    _validate_draft_numeric_facts(structured, source)
             except Exception as retry_error:
                 logger.warning(
                     "Legal formatting correction attempt failed validation or provider request (exception_type=%s)",
