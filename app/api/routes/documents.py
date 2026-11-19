@@ -97,6 +97,7 @@ def legal_draft_preflight(
     from app.services.legal_draft_completeness import assess_legal_draft_completeness
 
     document = DocumentService._get_visible_document(db, document_id, user)
+    _require_format_edit_access(db, document, user)
     if document.formatting_mode != "legal":
         raise HTTPException(status_code=422, detail="Legal drafting preflight requires a legal document.")
     try:
