@@ -1361,11 +1361,13 @@ def test_general_ai_drafting_rejects_output_that_drops_a_source_segment(monkeypa
             })}]}}]}
 
     monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: InvalidResponse())
-    with pytest.raises(HTTPException) as error:
-        DocumentFormattingService.format_transcript(
-            "First fact. Second fact.",
-            document_mode="draft",
-        )
+    result, _html = DocumentFormattingService.format_transcript(
+        "First fact. Second fact.",
+        document_mode="draft",
+    )
 
-    assert error.value.status_code == 502
+    # If both model attempts omit a source segment, the fallback keeps the
+    # original facts rather than returning a misleading incomplete draft.
+    paragraphs = [block["text"] for block in result["blocks"] if block["type"] == "paragraph"]
+    assert paragraphs == ["First fact.", "Second fact."]
     assert calls["count"] == 2
