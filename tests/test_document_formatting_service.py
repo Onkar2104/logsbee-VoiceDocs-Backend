@@ -1288,3 +1288,84 @@ def test_divorce_petition_fallback_adds_structure_without_changing_marathi_sourc
         f"SOURCE_SEGMENT_{index:04d}"
         for index in range(19, 21)
     ]
+
+
+def test_general_ai_drafting_rewrites_narration_and_tracks_all_source_segments(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    source = "आज आमची टीम बैठक झाली. पुढील आठवड्यात अहवाल सादर करायचा आहे."
+    captured = {}
+
+    class SuccessResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "title", "text": "बैठकीचा अहवाल"},
+                    {"type": "paragraph", "text": "आज टीमची बैठक आयोजित करण्यात आली.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]},
+                    {"type": "paragraph", "text": "पुढील आठवड्यात अहवाल सादर करण्याचे निश्चित करण्यात आले.", "source_segment_ids": ["SOURCE_SEGMENT_0002"]},
+                ]
+            }, ensure_ascii=False)}]}}]}
+
+    def fake_post(_url, **kwargs):
+        captured["payload"] = kwargs["json"]
+        return SuccessResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    result, html = DocumentFormattingService.format_transcript(
+        source,
+        document_mode="draft",
+        document_title="बैठकीचा अहवाल",
+    )
+
+    prompt = captured["payload"]["systemInstruction"]["parts"][0]["text"]
+    assert "AI DOCUMENT DRAFTING" in prompt
+    assert "SAME language and script" in prompt
+    assert "Never invent" in prompt
+    assert "बैठकीचा अहवाल" in captured["payload"]["contents"][0]["parts"][0]["text"]
+    assert [block["type"] for block in result["blocks"]] == ["title", "paragraph", "paragraph"]
+    assert "आयोजित करण्यात आली" in html
+    assert "निश्चित करण्यात आले" in html
+
+
+def test_general_ai_drafting_rejects_output_that_drops_a_source_segment(monkeypatch):
+    import json
+    import httpx
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr("app.services.document_formatting_service.time.sleep", lambda _delay: None)
+    calls = {"count": 0}
+
+    class InvalidResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            calls["count"] += 1
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({
+                "blocks": [
+                    {"type": "paragraph", "text": "Only first fact retained.", "source_segment_ids": ["SOURCE_SEGMENT_0001"]}
+                ]
+            })}]}}]}
+
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: InvalidResponse())
+    with pytest.raises(HTTPException) as error:
+        DocumentFormattingService.format_transcript(
+            "First fact. Second fact.",
+            document_mode="draft",
+        )
+
+    assert error.value.status_code == 502
+    assert calls["count"] == 2
