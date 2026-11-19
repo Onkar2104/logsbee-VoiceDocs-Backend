@@ -16,6 +16,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.config import settings
+from app.services.legal_formatting_guidance import get_document_type_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -515,7 +516,7 @@ class DocumentFormattingService:
                 "not merely apply generic legal styling and not leave the text as meeting notes or an unstructured narrative. "
                 "Use the following document-specific section outline as the target structure, in this order where applicable:\n"
                 f"{section_outline}\n"
-                "Create clear section headings and organize the supplied facts under the appropriate sections. "
+                f"DOCUMENT-TYPE RULES:\n{get_document_type_guidance(legal_context)}\n"\n                "Create clear section headings and organize the supplied facts under the appropriate sections. "
                 "VERBATIM FACTUAL CONTENT RULE: this is a formatting task, not a rewriting task. Reproduce every source word in factual "
                 "paragraph, bullet, numbered and quote blocks, in the original order and language. Do not paraphrase, translate, summarize, "
                 "correct grammar, replace names, normalize or spell out digits, or alter the factual wording. You may improve layout, "
