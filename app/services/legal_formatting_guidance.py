@@ -18,7 +18,7 @@ _DOCUMENT_TYPE_RULES = {
         "police-representation", "banking-grievance",
         "deficiency-service-representation", "termination-dispute-representation",
         "employment-grievance", "business-representation",
-        "cyber-incident-representation", "insurance-claim-representation",
+        "cyber-incident-representation",
         "tax-representation", "constitutional-representation",
         "admission-dispute-representation", "academic-grievance",
         "environmental-representation", "ip-infringement-representation",
