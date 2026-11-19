@@ -9,6 +9,7 @@ def get_legal_drafting_guidance(legal_context: dict) -> str:
     """Return document-family drafting rules with a focused cheque-notice outline."""
     document_type = legal_context.get("document_type_id", "")
     common = (
+        "OVERRIDE: This request explicitly uses legal drafting mode. Any earlier instruction in the formatter prompt requiring verbatim reproduction, exact source wording, no paraphrasing, or source-text equality applies only to formatting mode and is superseded for this request. You MAY rewrite and reorganize factual narration into formal legal prose, but MUST preserve the meaning and every material fact. "
         "DRAFTING MODE: Convert the supplied factual narration into a complete, formal "
         "document of the selected type. Unlike formatting mode, you MAY reorganize "
         "sentences, improve grammar, remove narration-style phrasing, and use formal "
