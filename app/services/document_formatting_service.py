@@ -620,7 +620,7 @@ class DocumentFormattingService:
                 "The user message labels each non-empty source line with a SOURCE_SEGMENT ID. Treat these labels as internal tracking metadata, never include them in the document text, and attach each ID to the output block or blocks that preserve that line using the source_segment_ids field. Every supplied source ID must be represented at least once. Do not claim an ID for content that was not retained."
             )
             if drafting_mode:
-                system_instruction += "\\n\\n" + get_legal_drafting_guidance(legal_context)
+                system_instruction += "\n\n" + get_legal_drafting_guidance(legal_context)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},
