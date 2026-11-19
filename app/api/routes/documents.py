@@ -159,12 +159,27 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
             raise HTTPException(status_code=422, detail="Select a valid India legal category and document type before formatting.") from exc
     if drafting_mode and legal_context is None:
         raise HTTPException(status_code=422, detail="Select a legal document type before using legal drafting mode.")
+    legal_draft_details = payload.get("legal_draft_details", {})
+    if not isinstance(legal_draft_details, dict):
+        raise HTTPException(status_code=422, detail="Legal draft details must be provided as an object.")
+    if len(legal_draft_details) > 30:
+        raise HTTPException(status_code=422, detail="Too many legal draft details were provided.")
+    clean_legal_draft_details = {}
+    for field, value in legal_draft_details.items():
+        if not isinstance(field, str) or not re.fullmatch(r"[a-z][a-z0-9_]{1,79}", field):
+            raise HTTPException(status_code=422, detail="A legal draft detail field is invalid.")
+        if not isinstance(value, str) or len(value) > 2000:
+            raise HTTPException(status_code=422, detail="Each legal draft detail must be text up to 2,000 characters.")
+        if value.strip():
+            clean_legal_draft_details[field] = value.strip()
+
     structured, html = DocumentFormattingService.format_transcript(
         source,
         legal_context=legal_context,
         drafting_mode=drafting_mode,
         document_mode=document_mode,
         document_title=document.title,
+        additional_legal_details=clean_legal_draft_details,
     )
     if images:
         html = DocumentFormattingService.restore_embedded_images(html, images)
