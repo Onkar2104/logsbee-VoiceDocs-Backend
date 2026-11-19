@@ -20,6 +20,7 @@ from app.services.legal_formatting_guidance import (
     get_document_type_guidance,
     get_fallback_section_heading,
 )
+from app.services.legal_drafting_guidance import get_legal_drafting_guidance
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +497,12 @@ class DocumentFormattingService:
         return "".join(parts)
 
     @classmethod
-    def format_transcript(cls, transcript: str, legal_context: dict | None = None) -> tuple[dict, str]:
+    def format_transcript(
+        cls,
+        transcript: str,
+        legal_context: dict | None = None,
+        drafting_mode: bool = False,
+    ) -> tuple[dict, str]:
         source = (transcript or "").strip()
         if not source:
             raise HTTPException(status_code=400, detail="There is no transcript to format.")
@@ -513,6 +519,8 @@ class DocumentFormattingService:
             "Return every meaningful source detail in the required structured format. "
             "If the source contains VOICEDOCS_EMBEDDED_IMAGE markers, preserve every marker exactly once and in its original relative position; do not edit, split, omit, or duplicate them."
         )
+        if drafting_mode and not legal_context:
+            raise HTTPException(status_code=422, detail="Legal drafting requires a selected legal document type.")
         required_source_ids = None
         user_source = source
         if legal_context:
@@ -611,6 +619,8 @@ class DocumentFormattingService:
                 "Preserve the source language, script, meaning, and intent. "
                 "The user message labels each non-empty source line with a SOURCE_SEGMENT ID. Treat these labels as internal tracking metadata, never include them in the document text, and attach each ID to the output block or blocks that preserve that line using the source_segment_ids field. Every supplied source ID must be represented at least once. Do not claim an ID for content that was not retained."
             )
+            if drafting_mode:
+                system_instruction += "\\n\\n" + get_legal_drafting_guidance(legal_context)
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -759,7 +769,7 @@ class DocumentFormattingService:
             structured = cls._validate_result(
                 parsed,
                 required_source_ids=required_source_ids,
-                required_source_text=source if legal_context else None,
+                required_source_text=source if legal_context and not drafting_mode else None,
             )
         except HTTPException as validation_error:
             if not legal_context:
@@ -771,9 +781,13 @@ class DocumentFormattingService:
             try:
                 retry_payload = json.loads(json.dumps(payload))
                 retry_payload["systemInstruction"]["parts"][0]["text"] += (
-                    " STRICT CORRECTION: Your previous JSON output failed source-preservation validation. "
-                    "Return a corrected JSON object using the exact original source wording, in its original order. "
-                    "Do not paraphrase, omit, add factual wording, or invent dates/numbers. "
+                    (" STRICT CORRECTION: Your previous JSON output failed legal-draft completeness validation. "
+                     "Return a complete formal draft that preserves every source segment's material facts. "
+                     "Do not invent or omit names, dates, numbers, amounts, events, addresses or legal references. "
+                     if drafting_mode else
+                     " STRICT CORRECTION: Your previous JSON output failed source-preservation validation. "
+                     "Return a corrected JSON object using the exact original source wording, in its original order. "
+                     "Do not paraphrase, omit, add factual wording, or invent dates/numbers. ")
                     "Attach every supplied SOURCE_SEGMENT ID to the block that contains its exact source text. "
                     "Structural headings may be added without source IDs. The backend will reject any further mismatch."
                 )
@@ -795,7 +809,7 @@ class DocumentFormattingService:
                 structured = cls._validate_result(
                     retry_parsed,
                     required_source_ids=required_source_ids,
-                    required_source_text=source,
+                    required_source_text=source if not drafting_mode else None,
                 )
             except Exception as retry_error:
                 logger.warning(
