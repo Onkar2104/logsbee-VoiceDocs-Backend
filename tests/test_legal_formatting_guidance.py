@@ -185,4 +185,5 @@ def test_format_transcript_uses_structured_family_fallback_after_retry_fails(
     assert [block["text"] for block in factual_blocks] == (
         _split_legal_source_segments(source)
     )
-    assert source in html
+    # HTML renders each preserved source segment in its own paragraph.
+    assert all(segment in html for segment in _split_legal_source_segments(source))
