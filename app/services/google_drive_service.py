@@ -87,11 +87,26 @@ class GoogleDriveService:
                     google_error = payload.get("error_description") or payload.get("error") or ""
                 except ValueError:
                     google_error = ""
+            # Google returns invalid_grant when a refresh token has expired,
+            # been revoked, or is no longer valid. Give users a clear recovery step.
+            if response is not None and response.status_code == 400 and (
+                "invalid_grant" in str(getattr(response, "text", "")).lower()
+                or "expired or revoked" in google_error.lower()
+                or "token has been expired" in google_error.lower()
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "Your Google Drive connection has expired or been revoked. "
+                        "Reconnect Google Drive in Profile & Settings > Drive, then try the backup again."
+                    ),
+                ) from exc
+
             reason = f" Google response: {google_error}." if google_error else ""
             status_code = response.status_code if response is not None else 502
             raise HTTPException(
                 status_code=502,
-                detail=f"Google OAuth token refresh failed (HTTP {status_code}).{reason}",
+                detail=f"Google could not refresh your Drive connection (HTTP {status_code}).{reason}",
             ) from exc
 
     @staticmethod
