@@ -79,7 +79,20 @@ class GoogleDriveService:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Google OAuth request failed.") from exc
+            response = getattr(exc, "response", None)
+            google_error = ""
+            if response is not None:
+                try:
+                    payload = response.json()
+                    google_error = payload.get("error_description") or payload.get("error") or ""
+                except ValueError:
+                    google_error = ""
+            reason = f" Google response: {google_error}." if google_error else ""
+            status_code = response.status_code if response is not None else 502
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google OAuth token refresh failed (HTTP {status_code}).{reason}",
+            ) from exc
 
     @staticmethod
     def _drive_request(method: str, url: str, token: str, **kwargs) -> httpx.Response:
@@ -90,7 +103,24 @@ class GoogleDriveService:
             response.raise_for_status()
             return response
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="Google Drive request failed.") from exc
+            response = getattr(exc, "response", None)
+            google_error = ""
+            if response is not None:
+                try:
+                    payload = response.json()
+                    error_data = payload.get("error", {})
+                    if isinstance(error_data, dict):
+                        google_error = error_data.get("message") or error_data.get("status") or ""
+                    elif isinstance(error_data, str):
+                        google_error = error_data
+                except ValueError:
+                    google_error = ""
+            reason = f" Google response: {google_error}." if google_error else ""
+            status_code = response.status_code if response is not None else 502
+            raise HTTPException(
+                status_code=502,
+                detail=f"Google Drive API request failed (HTTP {status_code}).{reason}",
+            ) from exc
 
     @staticmethod
     def _create_folder(token: str) -> str:
