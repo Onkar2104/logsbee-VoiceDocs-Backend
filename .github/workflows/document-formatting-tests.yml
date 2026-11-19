@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature/ai-document-formatting
+      - feature/legal-formatting-quality-improvements
   pull_request:
     branches:
       - feature/ai-document-formatting
+      - feature/legal-formatting-quality-improvements
 
 jobs:
   formatting-unit-tests:
