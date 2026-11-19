@@ -1,6 +1,11 @@
 """Coverage tests for document-type-specific legal formatting guidance."""
 
+import json
+
+import httpx
 import pytest
+
+from app.core.config import settings
 
 from app.services.legal_document_catalog import LEGAL_CATEGORIES, get_legal_context
 from app.services.document_formatting_service import (
@@ -110,3 +115,74 @@ def test_legal_fallback_has_family_heading_and_preserves_all_source_segments(
         required_source_text=source,
     )
     assert [block["text"] for block in validated["blocks"][2:]] == segments
+
+
+
+@pytest.mark.parametrize(
+    ("category_id", "document_type_id", "source", "expected_heading"),
+    [
+        ("banking-finance", "cheque-dishonour-notice", "A cheque was issued on 12 March 2025. Payment was not received.", "Notice content supplied"),
+        ("criminal-law", "criminal-complaint", "घटना १२ मार्च २०२५ रोजी घडली. तक्रार नोंदवली.", "दिलेल्या तक्रारीचा तपशील"),
+        ("business-corporate-law", "partnership-agreement-draft", "Partner A contributes INR 50,000. Partner B contributes INR 25,000.", "Agreement terms supplied"),
+    ],
+)
+def test_format_transcript_uses_structured_family_fallback_after_retry_fails(
+    monkeypatch, category_id, document_type_id, source, expected_heading
+):
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    calls = []
+
+    class InvalidResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            invalid_output = {
+                "blocks": [{
+                    "type": "paragraph",
+                    "text": "This deliberately altered response fails source validation.",
+                    "source_segment_ids": [
+                        f"SOURCE_SEGMENT_{index:04d}"
+                        for index, _ in enumerate(
+                            _split_legal_source_segments(source), start=1
+                        )
+                    ],
+                }]
+            }
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": json.dumps(invalid_output, ensure_ascii=False)
+                        }]
+                    }
+                }]
+            }
+
+    def fake_post(_url, **_kwargs):
+        calls.append(True)
+        return InvalidResponse()
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    context = get_legal_context("IN", category_id, document_type_id)
+
+    structured, html = DocumentFormattingService.format_transcript(
+        source, legal_context=context
+    )
+
+    assert len(calls) == 2
+    assert structured["blocks"][0]["type"] == "title"
+    assert structured["blocks"][0]["text"] == context["document_type_label"]
+    assert structured["blocks"][1]["type"] == "heading"
+    assert structured["blocks"][1]["text"] == expected_heading
+    factual_blocks = [
+        block for block in structured["blocks"]
+        if block["type"] in {"paragraph", "number", "bullet", "quote"}
+    ]
+    assert [block["text"] for block in factual_blocks] == (
+        _split_legal_source_segments(source)
+    )
+    assert source in html
