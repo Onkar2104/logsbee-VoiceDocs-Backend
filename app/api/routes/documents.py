@@ -105,7 +105,7 @@ def legal_draft_preflight(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail="Select a valid legal category and document type first.") from exc
     source = DocumentService._with_content(db, document).content
-    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\\b", source, re.IGNORECASE):
+    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
         source, _images = DocumentFormattingService.prepare_source_with_image_placeholders(source)
     return assess_legal_draft_completeness(source, legal_context)
 
