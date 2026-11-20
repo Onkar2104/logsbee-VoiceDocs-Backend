@@ -519,6 +519,7 @@ class DocumentFormattingService:
         drafting_mode: bool = False,
         document_mode: str = "format",
         document_title: str = "",
+        additional_legal_details: dict | None = None,
     ) -> tuple[dict, str]:
         source = (transcript or "").strip()
         if not source:
@@ -669,6 +670,24 @@ class DocumentFormattingService:
             )
             if drafting_mode:
                 system_instruction += "\n\n" + get_legal_drafting_guidance(legal_context)
+        if additional_legal_details:
+            # Structured intake answers supplement the source without polluting it.
+            details_json = json.dumps(additional_legal_details, ensure_ascii=False, separators=(",", ":"))
+            user_source += (
+                "\n\nUSER-PROVIDED LEGAL DETAILS (structured factual values; not questions):\n"
+                + details_json
+            )
+            system_instruction += (
+                " The user may supply a separate JSON object named USER-PROVIDED LEGAL DETAILS. "
+                "Treat each non-empty value as an additional fact or an explicitly marked placeholder supplied by the user. "
+                "Use each value in the appropriate party-particular, notice-date, address, dishonour-timeline, or other relevant section. "
+                "These structured values supplement the original narration and do not replace it. "
+                "CRITICAL: Never copy field names, intake questions, question wording, or JSON labels into the legal document. "
+                "Do not create a section titled 'Additional details', 'Missing information', or similar. "
+                "Do not list the questions or explain that the user answered them. Integrate only the supplied values naturally "
+                "into the relevant document fields. If a value is bracketed as a placeholder, retain it as a clearly marked placeholder. "
+                "Never infer or complete any part of an address, date, PIN code, or confirmation beyond the supplied value."
+            )
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         payload = {
             "systemInstruction": {"parts": [{"text": system_instruction}]},

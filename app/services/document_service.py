@@ -474,13 +474,19 @@ class DocumentService:
         ).first()
         if version is None:
             raise HTTPException(status_code=404, detail="Formatted version not found.")
-        if document.active_format_version_id == version.id:
-            raise HTTPException(status_code=409, detail="Select another formatted version before moving the active version to Trash.")
+        was_active = document.active_format_version_id == version.id
         version.is_deleted = True
         version.deleted_at = datetime.now(timezone.utc)
         version.deleted_by = uuid.UUID(user.id)
+        if was_active:
+            replacement = db.query(DocumentFormatVersion).filter(
+                DocumentFormatVersion.document_id == document.id,
+                DocumentFormatVersion.is_deleted.is_(False),
+                DocumentFormatVersion.id != version.id,
+            ).order_by(DocumentFormatVersion.version_number.desc()).first()
+            document.active_format_version_id = replacement.id if replacement else None
         db.commit()
-        return {"message": "Formatted version moved to Trash."}
+        return {"message": "Formatted version moved to Trash.", "active_version_id": document.active_format_version_id}
 
     @classmethod
     def restore_version(cls, db: Session, document_id: uuid.UUID, version_id: uuid.UUID, user):

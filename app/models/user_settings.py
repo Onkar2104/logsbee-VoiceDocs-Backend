@@ -19,5 +19,6 @@ class UserSettings(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
     default_language: Mapped[str] = mapped_column(String(12), nullable=False, default="en")
     automatic_backup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    jurisdiction_country: Mapped[str] = mapped_column(String(2), nullable=False, default='IN')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)

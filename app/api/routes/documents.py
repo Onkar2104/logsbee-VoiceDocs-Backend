@@ -87,6 +87,29 @@ def export_document_docx(
     )
 
 
+@router.post("/{document_id}/legal-draft-preflight")
+def legal_draft_preflight(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: LogsbeeUserContext = Depends(get_current_user),
+):
+    """Check for missing legal-draft intake details without generating or saving a version."""
+    from app.services.legal_draft_completeness import assess_legal_draft_completeness
+
+    document = DocumentService._get_visible_document(db, document_id, user)
+    _require_format_edit_access(db, document, user)
+    if document.formatting_mode != "legal":
+        raise HTTPException(status_code=422, detail="Legal drafting preflight requires a legal document.")
+    try:
+        legal_context = get_legal_context(document.jurisdiction, document.legal_category, document.document_type)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Select a valid legal category and document type first.") from exc
+    source = DocumentService._with_content(db, document).content
+    if re.search(r"</?(?:p|div|h[1-6]|ul|ol|li|br|strong|b|em|i|u|s|blockquote|a|img)\b", source, re.IGNORECASE):
+        source, _images = DocumentFormattingService.prepare_source_with_image_placeholders(source)
+    return assess_legal_draft_completeness(source, legal_context)
+
+
 @router.post("/{document_id}/format")
 def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Session = Depends(get_db), user: LogsbeeUserContext = Depends(get_current_user)):
     document = DocumentService._get_visible_document(db, document_id, user)
@@ -136,12 +159,27 @@ def format_document(document_id: uuid.UUID, payload: dict | None = None, db: Ses
             raise HTTPException(status_code=422, detail="Select a valid India legal category and document type before formatting.") from exc
     if drafting_mode and legal_context is None:
         raise HTTPException(status_code=422, detail="Select a legal document type before using legal drafting mode.")
+    legal_draft_details = payload.get("legal_draft_details", {})
+    if not isinstance(legal_draft_details, dict):
+        raise HTTPException(status_code=422, detail="Legal draft details must be provided as an object.")
+    if len(legal_draft_details) > 30:
+        raise HTTPException(status_code=422, detail="Too many legal draft details were provided.")
+    clean_legal_draft_details = {}
+    for field, value in legal_draft_details.items():
+        if not isinstance(field, str) or not re.fullmatch(r"[a-z][a-z0-9_]{1,79}", field):
+            raise HTTPException(status_code=422, detail="A legal draft detail field is invalid.")
+        if not isinstance(value, str) or len(value) > 2000:
+            raise HTTPException(status_code=422, detail="Each legal draft detail must be text up to 2,000 characters.")
+        if value.strip():
+            clean_legal_draft_details[field] = value.strip()
+
     structured, html = DocumentFormattingService.format_transcript(
         source,
         legal_context=legal_context,
         drafting_mode=drafting_mode,
         document_mode=document_mode,
         document_title=document.title,
+        additional_legal_details=clean_legal_draft_details,
     )
     if images:
         html = DocumentFormattingService.restore_embedded_images(html, images)
